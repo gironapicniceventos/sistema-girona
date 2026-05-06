@@ -1,0 +1,46 @@
+# Reduce el contexto que Docker sube a Railway al hacer build.
+# Solo se copian app/ requirements.txt y docker-entrypoint.sh segun el Dockerfile,
+# pero igualmente excluimos artefactos pesados o secretos por si cambia el COPY.
+
+# Entornos virtuales locales
+.venv/
+.seed-venv/
+venv/
+ENV/
+env/
+
+# Cache Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Bases / dumps locales (no van a la imagen del backend)
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.backup
+*.sql
+
+# Secretos / entornos
+.env
+.env.*
+!.env.example
+!.env.railway.example
+
+# OS / editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Git
+.git/
+.gitignore
+
+# Logs
+*.log
+logs/

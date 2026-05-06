@@ -4,6 +4,7 @@
 !.env.example
 !.env.deploy.example
 !.env.factus.example
+!.env.railway.example
 *.pem
 *.key
 *.p12
