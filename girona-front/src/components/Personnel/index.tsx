@@ -71,7 +71,12 @@ const INGREDIENT_UNIT_OPTIONS = [
 ];
 
 type SupplierIngredientRowState =
-  | { kind: "existing"; productId: number | "" }
+  | {
+      kind: "existing";
+      productId: number | "";
+      purchase_quantity: string;
+      purchase_total_cost: string;
+    }
   | {
       kind: "new";
       name: string;
@@ -438,7 +443,14 @@ export default function Personnel() {
         wh !== null && wh !== undefined && String(wh).trim() !== "" ? String(wh) : "",
       );
       setSupplierIngredientRows(
-        ids.length ? ids.map((id) => ({ kind: "existing" as const, productId: id })) : [],
+        ids.length
+          ? ids.map((id) => ({
+              kind: "existing" as const,
+              productId: id,
+              purchase_quantity: "",
+              purchase_total_cost: "",
+            }))
+          : [],
       );
     } else {
       setSupplierIngredientRows([]);
@@ -545,6 +557,12 @@ export default function Personnel() {
   async function handleSave() {
     setSubmitStatus({ kind: "loading" });
 
+    const pendingPurchases: Array<{
+      product_id: number;
+      quantity: string;
+      unit_cost: string;
+    }> = [];
+
     const name = nameInput.trim();
     if (!name) {
       setSubmitStatus({ kind: "error", message: "Nombre es requerido." });
@@ -613,6 +631,40 @@ export default function Personnel() {
             return;
           }
           resolvedIds.push(row.productId);
+          const qStr = row.purchase_quantity.trim();
+          const tcRaw = normalizeMoneyInput(row.purchase_total_cost);
+          if (qStr === "" && tcRaw === "") {
+            continue;
+          }
+          if (qStr === "" || tcRaw === "") {
+            setSubmitStatus({
+              kind: "error",
+              message: `En la fila ${i + 1} indica cantidad y costo total, o deja ambos vacíos para solo vincular el producto.`,
+            });
+            return;
+          }
+          const qNum = safeNumber(qStr);
+          const tcNum = safeNumber(tcRaw);
+          if (qNum === null || qNum <= 0) {
+            setSubmitStatus({
+              kind: "error",
+              message: `Cantidad inválida en la fila ${i + 1}.`,
+            });
+            return;
+          }
+          if (tcNum === null || tcNum < 0) {
+            setSubmitStatus({
+              kind: "error",
+              message: `Costo total inválido en la fila ${i + 1}.`,
+            });
+            return;
+          }
+          const unitCostNum = computeUnitCost(qStr, tcRaw);
+          pendingPurchases.push({
+            product_id: row.productId,
+            quantity: qStr,
+            unit_cost: String(unitCostNum),
+          });
           continue;
         }
         const name = row.name.trim();
@@ -736,13 +788,54 @@ export default function Personnel() {
       return;
     }
 
-    setSubmitStatus({
-      kind: "success",
-      message:
-        formMode === "create"
-          ? "Registro creado correctamente."
-          : "Cambios guardados correctamente.",
-    });
+    let purchaseWarning: string | null = null;
+    if (tab === "suppliers" && pendingPurchases.length > 0) {
+      const supplierIdForPurchase: number | null =
+        typeof responsePayload?.id === "number"
+          ? responsePayload.id
+          : formMode === "edit"
+            ? editingId
+            : null;
+      if (supplierIdForPurchase !== null) {
+        try {
+          const purchaseResponse = await fetch("/api/inventory/purchases", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              supplier_id: supplierIdForPurchase,
+              items: pendingPurchases,
+            }),
+          });
+          if (!purchaseResponse.ok) {
+            const purchasePayload = (await purchaseResponse
+              .json()
+              .catch(() => null)) as { message?: string; detail?: unknown } | null;
+            purchaseWarning =
+              (typeof purchasePayload?.message === "string" && purchasePayload.message) ||
+              (typeof purchasePayload?.detail === "string" && purchasePayload.detail) ||
+              "El proveedor se guardó, pero no se pudieron registrar las compras.";
+          }
+        } catch {
+          purchaseWarning =
+            "El proveedor se guardó, pero falló la conexión al registrar las compras.";
+        }
+      } else {
+        purchaseWarning =
+          "El proveedor se guardó, pero no se pudo identificar su id para registrar las compras.";
+      }
+    }
+
+    if (purchaseWarning) {
+      setSubmitStatus({ kind: "error", message: purchaseWarning });
+    } else {
+      setSubmitStatus({
+        kind: "success",
+        message:
+          formMode === "create"
+            ? "Registro creado correctamente."
+            : "Cambios guardados correctamente.",
+      });
+    }
     setShowForm(false);
     setFormMode("create");
     setEditingId(null);
@@ -1124,7 +1217,15 @@ export default function Personnel() {
                               onClick={() =>
                                 setSupplierIngredientRows((rows) => {
                                   const next = [...rows];
-                                  next[index] = { kind: "existing", productId: "" };
+                                  const cur = next[index];
+                                  next[index] = {
+                                    kind: "existing",
+                                    productId: cur.kind === "existing" ? cur.productId : "",
+                                    purchase_quantity:
+                                      cur.kind === "existing" ? cur.purchase_quantity : "",
+                                    purchase_total_cost:
+                                      cur.kind === "existing" ? cur.purchase_total_cost : "",
+                                  };
                                   return next;
                                 })
                               }
@@ -1174,33 +1275,106 @@ export default function Personnel() {
                           </div>
                         </div>
                         {rowVal.kind === "existing" ? (
-                          <select
-                            value={rowVal.productId === "" ? "" : String(rowVal.productId)}
-                            onChange={(e) => {
-                              const raw = e.target.value;
-                              setSupplierIngredientRows((rows) => {
-                                const n = [...rows];
-                                n[index] = {
-                                  kind: "existing",
-                                  productId: raw === "" ? "" : Number(raw),
-                                };
-                                return n;
-                              });
-                            }}
-                            className="w-full min-w-0 max-w-md rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
-                          >
-                            <option value="">Selecciona ingrediente</option>
-                            {supplierIngredientCatalog.map((p) => (
-                              <option
-                                key={p.id}
-                                value={String(p.id)}
-                                disabled={taken.has(p.id)}
-                              >
-                                {p.name}
-                                {p.unit ? ` (${p.unit})` : ""}
-                              </option>
-                            ))}
-                          </select>
+                          <div className="space-y-3">
+                            <select
+                              value={rowVal.productId === "" ? "" : String(rowVal.productId)}
+                              onChange={(e) => {
+                                const raw = e.target.value;
+                                setSupplierIngredientRows((rows) => {
+                                  const n = [...rows];
+                                  const cur = n[index];
+                                  n[index] = {
+                                    kind: "existing",
+                                    productId: raw === "" ? "" : Number(raw),
+                                    purchase_quantity:
+                                      cur.kind === "existing" ? cur.purchase_quantity : "",
+                                    purchase_total_cost:
+                                      cur.kind === "existing" ? cur.purchase_total_cost : "",
+                                  };
+                                  return n;
+                                });
+                              }}
+                              className="w-full min-w-0 max-w-md rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
+                            >
+                              <option value="">Selecciona producto</option>
+                              {supplierIngredientCatalog.map((p) => (
+                                <option
+                                  key={p.id}
+                                  value={String(p.id)}
+                                  disabled={taken.has(p.id)}
+                                >
+                                  {p.name}
+                                  {p.unit ? ` (${p.unit})` : ""}
+                                </option>
+                              ))}
+                            </select>
+                            <p className="text-xs text-body-color dark:text-dark-6">
+                              Opcional: registra una entrada de stock con cantidad y costo (deja
+                              vacío si solo quieres vincular el producto al proveedor).
+                            </p>
+                            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                              <div>
+                                <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
+                                  Cantidad
+                                </label>
+                                <input
+                                  value={rowVal.purchase_quantity}
+                                  onChange={(e) =>
+                                    setSupplierIngredientRows((rows) => {
+                                      const n = [...rows];
+                                      const cur = n[index];
+                                      if (cur.kind === "existing") {
+                                        n[index] = { ...cur, purchase_quantity: e.target.value };
+                                      }
+                                      return n;
+                                    })
+                                  }
+                                  inputMode="decimal"
+                                  placeholder="Cantidad comprada"
+                                  className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
+                                />
+                              </div>
+                              <div>
+                                <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
+                                  Costo total
+                                </label>
+                                <input
+                                  value={formatCopInput(rowVal.purchase_total_cost)}
+                                  onChange={(e) =>
+                                    setSupplierIngredientRows((rows) => {
+                                      const n = [...rows];
+                                      const cur = n[index];
+                                      if (cur.kind === "existing") {
+                                        n[index] = {
+                                          ...cur,
+                                          purchase_total_cost: normalizeMoneyInput(e.target.value),
+                                        };
+                                      }
+                                      return n;
+                                    })
+                                  }
+                                  inputMode="numeric"
+                                  placeholder="Ej: 45.000"
+                                  className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
+                                />
+                              </div>
+                              <div className="flex flex-col justify-end">
+                                <span className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
+                                  Costo unit. (calculado)
+                                </span>
+                                <div className="flex min-h-[42px] items-center rounded-md border border-stroke bg-gray-1 px-3 text-sm text-dark dark:border-dark-3 dark:bg-dark-2 dark:text-white">
+                                  {formatCopInput(
+                                    String(
+                                      computeUnitCost(
+                                        rowVal.purchase_quantity,
+                                        rowVal.purchase_total_cost,
+                                      ),
+                                    ),
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
                         ) : (
                           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
                             <div className="min-w-0 sm:col-span-2">
