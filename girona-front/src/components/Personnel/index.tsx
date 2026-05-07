@@ -606,9 +606,9 @@ export default function Personnel() {
           if (row.productId === "" || !Number.isFinite(row.productId)) {
             setSubmitStatus({
               kind: "error",
-              message: `Selecciona un ingrediente en la fila ${
+              message: `Selecciona un producto en la fila ${
                 i + 1
-              } o usa "Nuevo ingrediente" y completa los campos.`,
+              } o usa "Nuevo producto" y completa los campos.`,
             });
             return;
           }
@@ -1160,7 +1160,7 @@ export default function Personnel() {
                                   : "border border-stroke text-dark hover:bg-gray-1 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2")
                               }
                             >
-                              Nuevo ingrediente
+                              Nuevo producto
                             </button>
                             <button
                               type="button"
@@ -1343,7 +1343,7 @@ export default function Personnel() {
                     }
                     className="rounded-md border border-stroke px-3 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
                   >
-                    Agregar ingrediente
+                    Agregar producto
                   </button>
                 </div>
               )}
