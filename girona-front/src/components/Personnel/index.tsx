@@ -1081,12 +1081,8 @@ export default function Personnel() {
                     }
                     className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
                   >
-                    <option value="purchase">
-                      Compra (bienes) — base {supplierFormWHBaseFormatted("purchase")}
-                    </option>
-                    <option value="service">
-                      Servicio — base {supplierFormWHBaseFormatted("service")}
-                    </option>
+                    <option value="purchase">Compra</option>
+                    <option value="service">Servicio</option>
                   </select>
                 </div>
                 <div>
