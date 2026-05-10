@@ -10,7 +10,6 @@ import {
   useRef,
   useState,
 } from "react";
-import Link from "next/link";
 import { SearchIcon } from "@/assets/icons";
 
 type InventoryKind = "ingredient" | "material" | "recipe";
@@ -428,7 +427,7 @@ function IngredientSearchField({
   );
 }
 
-export default function Inventory({ backendBaseUrl }: { backendBaseUrl: string }) {
+export default function Inventory() {
   const [tab, setTab] = useState<InventoryKind>("ingredient");
   const [products, setProducts] = useState<InventoryProduct[]>([]);
   const [recipes, setRecipes] = useState<RecipeItem[]>([]);
@@ -475,11 +474,6 @@ export default function Inventory({ backendBaseUrl }: { backendBaseUrl: string }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
   const [deletingIds, setDeletingIds] = useState<Set<number>>(() => new Set());
-
-  const exportInventoryUrl = useMemo(() => {
-    const base = backendBaseUrl.replace(/\/$/, "");
-    return `${base}/inventory/exports/inventory.xlsx`;
-  }, [backendBaseUrl]);
 
   async function loadProducts(kind: InventoryKind) {
     setLoading(true);
@@ -1263,22 +1257,6 @@ export default function Inventory({ backendBaseUrl }: { backendBaseUrl: string }
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {tab !== "recipe" ? (
-            <>
-              <a
-                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90"
-                href={exportInventoryUrl}
-              >
-                Descargar Excel
-              </a>
-              <Link
-                className="rounded-md border border-stroke px-4 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
-                href="/inventory/purchases"
-              >
-                Informe de compras
-              </Link>
-            </>
-          ) : null}
           <button
             type="button"
             onClick={() => {

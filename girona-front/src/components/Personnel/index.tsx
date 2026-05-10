@@ -286,6 +286,7 @@ export default function Personnel({ variant = "full" }: PersonnelProps) {
   const [supplierIngredientRows, setSupplierIngredientRows] = useState<SupplierIngredientRowState[]>([]);
 
   const [togglingIds, setTogglingIds] = useState<Set<number>>(() => new Set());
+  const [scrollSupplierProductsPending, setScrollSupplierProductsPending] = useState(false);
 
   const filteredSuppliers = useMemo(() => {
     const term = normalizeSearchText(searchTerm);
@@ -314,6 +315,18 @@ export default function Personnel({ variant = "full" }: PersonnelProps) {
   useEffect(() => {
     loadCurrentTab();
   }, [tab]);
+
+  useEffect(() => {
+    if (!scrollSupplierProductsPending || !showForm || tab !== "suppliers") return;
+    const t = window.setTimeout(() => {
+      document.getElementById("supplier-productos-section")?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+      setScrollSupplierProductsPending(false);
+    }, 80);
+    return () => window.clearTimeout(t);
+  }, [scrollSupplierProductsPending, showForm, tab]);
 
   useEffect(() => {
     if (!showForm || tab !== "suppliers") return;
@@ -351,6 +364,7 @@ export default function Personnel({ variant = "full" }: PersonnelProps) {
     resetForm();
     setSubmitStatus({ kind: "idle" });
     closeDetails();
+    setScrollSupplierProductsPending(false);
   }, [tab]);
 
   async function loadCurrentTab() {
@@ -433,11 +447,15 @@ export default function Personnel({ variant = "full" }: PersonnelProps) {
     setShowForm(true);
   }
 
-  function openEdit(target: Supplier | Customer | Waiter) {
+  function openEdit(
+    target: Supplier | Customer | Waiter,
+    options?: { focusSupplierProducts?: boolean },
+  ) {
     setFormMode("edit");
     setEditingId(target.id);
     setSubmitStatus({ kind: "idle" });
     setShowForm(true);
+    setScrollSupplierProductsPending(false);
     setNameInput(target.name ?? "");
 
     if ("identity_document" in target) {
@@ -465,16 +483,33 @@ export default function Personnel({ variant = "full" }: PersonnelProps) {
       setSupplierWithholdingPercentInput(
         wh !== null && wh !== undefined && String(wh).trim() !== "" ? String(wh) : "",
       );
+      const baseRows = ids.length
+        ? ids.map((id) => ({
+            kind: "existing" as const,
+            productId: id,
+            purchase_quantity: "",
+            purchase_total_cost: "",
+          }))
+        : [];
+      const appendProductRow = Boolean(options?.focusSupplierProducts);
       setSupplierIngredientRows(
-        ids.length
-          ? ids.map((id) => ({
-              kind: "existing" as const,
-              productId: id,
-              purchase_quantity: "",
-              purchase_total_cost: "",
-            }))
-          : [],
+        appendProductRow
+          ? [
+              ...baseRows,
+              {
+                kind: "new" as const,
+                name: "",
+                unit: "gramos",
+                initial_quantity: "",
+                total_cost: "",
+                sku: "",
+              },
+            ]
+          : baseRows,
       );
+      if (appendProductRow) {
+        setScrollSupplierProductsPending(true);
+      }
     } else {
       setSupplierIngredientRows([]);
     }
@@ -486,6 +521,7 @@ export default function Personnel({ variant = "full" }: PersonnelProps) {
     setEditingId(null);
     resetForm();
     setSubmitStatus({ kind: "idle" });
+    setScrollSupplierProductsPending(false);
   }
 
   function parseAmount(value: number | string | null | undefined) {
@@ -1217,7 +1253,10 @@ export default function Personnel({ variant = "full" }: PersonnelProps) {
           ) : null}
 
           {tab === "suppliers" ? (
-            <div className="mt-4 space-y-3 border-t border-stroke pt-4 dark:border-dark-3">
+            <div
+              id="supplier-productos-section"
+              className="mt-4 space-y-3 border-t border-stroke pt-4 dark:border-dark-3"
+            >
               <div>
                 <span className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
                   Ingredientes que compras a este proveedor
@@ -1706,6 +1745,16 @@ export default function Personnel({ variant = "full" }: PersonnelProps) {
                       className="rounded-md bg-white/90 px-3 py-2 text-sm font-semibold text-dark transition hover:bg-white"
                     >
                       Editar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openEdit(supplier, { focusSupplierProducts: true });
+                      }}
+                      className="rounded-md bg-primary/95 px-3 py-2 text-sm font-semibold text-white transition hover:bg-primary"
+                    >
+                      Agregar producto
                     </button>
                     <button
                       type="button"
