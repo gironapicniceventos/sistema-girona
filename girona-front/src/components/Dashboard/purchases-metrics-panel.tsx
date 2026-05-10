@@ -180,7 +180,7 @@ export default function PurchasesMetricsPanel({ purchases, loading }: Props) {
         </div>
         <div className="flex flex-wrap gap-2">
           <Link
-            href="/personnel?tab=proveedores"
+            href="/compras/proveedores"
             className="rounded-md border border-stroke bg-white px-3 py-2 text-sm font-medium text-dark transition hover:bg-gray-2 dark:border-dark-3 dark:bg-dark-2 dark:text-white dark:hover:bg-dark-3"
           >
             Registrar compra

@@ -22,13 +22,13 @@ dayjs.extend(timezone);
 const COLOMBIA_TZ = "America/Bogota";
 const INC_RATE = 0.08;
 const BUSINESS_NAME = process.env.NEXT_PUBLIC_BUSINESS_NAME ?? "Girona";
+const PREFACTURA_INC_FOOTNOTE =
+  "Impuesto al consumo (INC), si aplica, forma parte del total a pagar y no se discrimina en este comprobante.";
 const PAYMENT_METHOD_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "efectivo", label: "Efectivo" },
-  { value: "tarjeta_credito", label: "Tarjeta de Crédito" },
-  { value: "tarjeta_debito", label: "Tarjeta de Débito" },
-  { value: "transferencia", label: "Transferencia bancaria" },
-  { value: "billetera", label: "Billetera / Nequi / Daviplata" },
-  { value: "otro", label: "Otro" },
+  { value: "datofono", label: "Datáfono" },
+  { value: "qr", label: "QR" },
+  { value: "nequi", label: "Nequi" },
 ];
 
 function paymentMethodLabel(value: string) {
@@ -41,6 +41,11 @@ function escapeHtml(s: string) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/** jsPDF fuente por defecto: latin-1 aproximado */
+function pdfLatin1Safe(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 const POS_HIDDEN_FINISHED_ORDERS_KEY = "pos_hidden_finished_orders_v1";
 const TABLE_SECTION_VALUES = [
@@ -374,7 +379,6 @@ function buildOrderPdf(order: PosOrderOut, tableName: string) {
 
   const buildSectionTotals = (items: PosOrderOut["items"]): Array<[string, number]> => {
     const subtotal = items.reduce((acc, item) => acc + lineSubtotalOf(item), 0);
-    const inc = items.reduce((acc, item) => acc + lineTaxOf(item), 0);
     const discounts = items.reduce((acc, item) => acc + Number(item.discount_amount || 0), 0);
     const courtesies = items.reduce(
       (acc, item) => acc + (item.courtesy ? Number(item.unit_price) * Number(item.quantity) : 0),
@@ -383,7 +387,6 @@ function buildOrderPdf(order: PosOrderOut, tableName: string) {
     const total = items.reduce((acc, item) => acc + lineTotalOf(item), 0);
     return [
       ["Subtotal", subtotal],
-      ["INC", inc],
       ["Descuentos", discounts],
       ["Cortesías", courtesies],
       ["Total", total],
@@ -392,10 +395,14 @@ function buildOrderPdf(order: PosOrderOut, tableName: string) {
 
   drawPage("Comanda Restaurante", restaurantItems, buildSectionTotals(restaurantItems), {
     includeZoneLabel: false,
+    footerNote:
+      "INC u otros impuestos al consumo, si aplican, van incluidos en el total sin discriminar lineas.",
   });
   doc.addPage();
   drawPage("Comanda Bar", barItems, buildSectionTotals(barItems), {
     includeZoneLabel: false,
+    footerNote:
+      "INC u otros impuestos al consumo, si aplican, van incluidos en el total sin discriminar lineas.",
   });
   doc.addPage();
   drawPage(
@@ -403,14 +410,17 @@ function buildOrderPdf(order: PosOrderOut, tableName: string) {
     order.items,
     [
       ["Subtotal", order.subtotal],
-      ["INC", order.tax_total],
       ["Descuentos", order.discount_total],
       ["Cortesías", order.courtesy_total],
       ["Servicio", order.service_total],
       ["Utilidad", order.utility_total ?? 0],
       ["Total", order.total],
     ],
-    { includeZoneLabel: true },
+    {
+      includeZoneLabel: true,
+      footerNote:
+        "INC u otros impuestos al consumo, si aplican, van incluidos en el total sin discriminar lineas.",
+    },
   );
 
   return doc;
@@ -504,9 +514,27 @@ function buildPreFacturaPdf(
     doc.setFont("helvetica", "normal");
   };
   addTotalRow("Subtotal", preview.subtotal);
-  addTotalRow("INC", preview.incTotal);
   addTotalRow("Servicio", preview.serviceTotal);
   addTotalRow("Total", preview.total, true);
+  if (y > 275) {
+    doc.addPage();
+    y = 20;
+  }
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  const foot = doc.splitTextToSize(
+    pdfLatin1Safe(PREFACTURA_INC_FOOTNOTE),
+    pageW - m,
+  );
+  y += 2;
+  for (const ln of foot) {
+    if (y > 285) {
+      doc.addPage();
+      y = 20;
+    }
+    doc.text(ln, m, y);
+    y += 4;
+  }
   return doc;
 }
 
@@ -613,8 +641,10 @@ function ViewOrderModal({
                   </div>
                 </div>
                 <div className="mt-1 text-xs text-dark-6 dark:text-dark-6">
-                  Cant: {item.quantity} · INC: {Number(item.tax_rate) * 100}% · Desc:{" "}
-                  {Number(item.discount_amount) > 0 ? formatMoney(item.discount_amount) : "0"}
+                  Cant: {item.quantity}
+                  {Number(item.discount_amount) > 0
+                    ? ` · Desc: ${formatMoney(item.discount_amount)}`
+                    : ""}
                   {item.courtesy ? " · Cortesía" : ""}
                 </div>
                 <div className="mt-1 flex items-center justify-between gap-2 text-xs font-semibold text-dark dark:text-white">
@@ -640,10 +670,6 @@ function ViewOrderModal({
               <span>{formatMoney(Number(order.subtotal))}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span>INC</span>
-              <span>{formatMoney(Number(order.tax_total))}</span>
-            </div>
-            <div className="flex items-center justify-between">
               <span>Descuentos</span>
               <span>{formatMoney(Number(order.discount_total))}</span>
             </div>
@@ -651,6 +677,7 @@ function ViewOrderModal({
               <span>Cortesías</span>
               <span>{formatMoney(Number(order.courtesy_total))}</span>
             </div>
+            <p className="text-[11px] text-dark-6 dark:text-dark-6">{PREFACTURA_INC_FOOTNOTE}</p>
             <div className="flex items-center justify-between font-semibold">
               <span>Total</span>
               <span>{formatMoney(Number(order.total))}</span>
@@ -730,6 +757,10 @@ export default function PosScreen() {
     | { kind: "success"; message: string }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
+
+  useEffect(() => {
+    if (issueElectronicInvoice) setApplyConsumptionTax(true);
+  }, [issueElectronicInvoice]);
 
   const [waiterModalOpen, setWaiterModalOpen] = useState(false);
   const [waiterOrder, setWaiterOrder] = useState<PosOrderOut | null>(null);
@@ -934,9 +965,12 @@ export default function PosScreen() {
   ): Promise<PosOrderOut | null> {
     try {
       setPaymentStatus({ kind: "loading" });
+      const resolvedApplyInc = issueElectronicInvoice
+        ? true
+        : (payload?.apply_inc ?? applyConsumptionTax);
       const closePayload = {
         ...(payload ?? {}),
-        apply_inc: payload?.apply_inc ?? applyConsumptionTax,
+        apply_inc: resolvedApplyInc,
         payment_method: payload?.payment_method ?? paymentMethod,
         service_total:
           payload?.service_total ??
@@ -1306,9 +1340,9 @@ export default function PosScreen() {
       </table>
       <div style="margin-top:12px;font-size:13px;">
         <p style="margin:2px 0;">Subtotal: ${formatMoney(paymentPreview.subtotal)}</p>
-        <p style="margin:2px 0;">INC: ${formatMoney(paymentPreview.incTotal)}</p>
         <p style="margin:2px 0;">Servicio: ${formatMoney(paymentPreview.serviceTotal)}</p>
         <p style="margin:8px 0 0 0;"><strong>Total: ${formatMoney(paymentPreview.total)}</strong></p>
+        <p style="margin:8px 0 0 0;font-size:11px;color:#555;">${escapeHtml(PREFACTURA_INC_FOOTNOTE)}</p>
       </div>
       </body></html>`,
     );
@@ -2275,17 +2309,19 @@ export default function PosScreen() {
               </p>
               {issueElectronicInvoice ? (
                 <div className="mt-3">
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
-                      Email cliente (opcional)
-                    </label>
-                    <input
-                      value={customerEmailInput}
-                      onChange={(e) => setCustomerEmailInput(e.target.value)}
-                      className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
-                      placeholder="cliente@correo.com"
-                    />
-                  </div>
+                  {paymentStep !== "new" ? (
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
+                        Email cliente (opcional)
+                      </label>
+                      <input
+                        value={customerEmailInput}
+                        onChange={(e) => setCustomerEmailInput(e.target.value)}
+                        className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
+                        placeholder="cliente@correo.com"
+                      />
+                    </div>
+                  ) : null}
                   <p className="mt-2 text-[11px] text-body-color dark:text-dark-6">
                     Rango de numeracion tomado desde configuracion del sistema.
                   </p>
@@ -2299,12 +2335,15 @@ export default function PosScreen() {
                   type="checkbox"
                   checked={applyConsumptionTax}
                   onChange={(e) => setApplyConsumptionTax(e.target.checked)}
-                  className="h-4 w-4"
+                  disabled={issueElectronicInvoice}
+                  className="h-4 w-4 disabled:opacity-60"
                 />
                 Aplicar impuesto al consumo (INC 8%)
               </label>
               <p className="mt-1 text-xs text-body-color dark:text-dark-6">
-                Si no lo marcas, el pedido se cierra sin INC.
+                {issueElectronicInvoice
+                  ? "Al emitir factura electrónica el INC se aplica automáticamente."
+                  : "Si no lo marcas, el pedido se cierra sin INC."}
               </p>
 
               <div className="mt-3">
@@ -2327,10 +2366,6 @@ export default function PosScreen() {
                     <span>{formatMoney(paymentPreview.subtotal)}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span>INC</span>
-                    <span>{formatMoney(paymentPreview.incTotal)}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
                     <span>Servicio</span>
                     <span>{formatMoney(paymentPreview.serviceTotal)}</span>
                   </div>
@@ -2338,6 +2373,9 @@ export default function PosScreen() {
                     <span>Total a cobrar</span>
                     <span>{formatMoney(paymentPreview.total)}</span>
                   </div>
+                  <p className="pt-1 text-[10px] leading-snug text-body-color dark:text-dark-6">
+                    {PREFACTURA_INC_FOOTNOTE}
+                  </p>
                 </div>
               ) : null}
             </div>
@@ -2415,10 +2453,6 @@ export default function PosScreen() {
                     <span>{formatMoney(paymentPreview.subtotal)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>INC</span>
-                    <span>{formatMoney(paymentPreview.incTotal)}</span>
-                  </div>
-                  <div className="flex justify-between">
                     <span>Servicio</span>
                     <span>{formatMoney(paymentPreview.serviceTotal)}</span>
                   </div>
@@ -2426,6 +2460,9 @@ export default function PosScreen() {
                     <span>Total</span>
                     <span>{formatMoney(paymentPreview.total)}</span>
                   </div>
+                  <p className="pt-1 text-[10px] leading-snug text-body-color dark:text-dark-6">
+                    {PREFACTURA_INC_FOOTNOTE}
+                  </p>
                 </div>
               </div>
             ) : null}
@@ -2469,35 +2506,49 @@ export default function PosScreen() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="sm:col-span-2">
                     <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
-                      Nombre
+                      Nombre / Razon social
                     </label>
                     <input
                       value={customerNameInput}
                       onChange={(e) => setCustomerNameInput(e.target.value)}
                       className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
-                      placeholder="Nombre completo"
+                      placeholder="Nombre completo o razon social"
                     />
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
-                      Identificacion
+                      N° de identificacion / NIT
                     </label>
                     <input
                       value={customerDocumentInput}
                       onChange={(e) => setCustomerDocumentInput(e.target.value)}
                       className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
-                      placeholder="Documento"
+                      placeholder="CC, NIT, etc."
                     />
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
-                      Telefono
+                      N° de telefono
                     </label>
                     <input
                       value={customerPhoneInput}
                       onChange={(e) => setCustomerPhoneInput(e.target.value)}
                       className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
                       placeholder="Telefono"
+                      inputMode="tel"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
+                      Correo electronico
+                    </label>
+                    <input
+                      type="email"
+                      value={customerEmailInput}
+                      onChange={(e) => setCustomerEmailInput(e.target.value)}
+                      className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
+                      placeholder="cliente@correo.com"
+                      autoComplete="email"
                     />
                   </div>
                 </div>
@@ -3046,10 +3097,6 @@ export default function PosScreen() {
                   <span>{formatMoney(cartTotals.subtotal)}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span>INC</span>
-                  <span>{formatMoney(cartTotals.tax)}</span>
-                </div>
-                <div className="flex items-center justify-between">
                   <span>Descuentos</span>
                   <span>{formatMoney(cartTotals.discount)}</span>
                 </div>
@@ -3057,6 +3104,7 @@ export default function PosScreen() {
                   <span>Cortesías</span>
                   <span>{formatMoney(cartTotals.courtesy)}</span>
                 </div>
+                <p className="text-[11px] text-body-color dark:text-dark-6">{PREFACTURA_INC_FOOTNOTE}</p>
                 <div className="flex items-center justify-between text-base font-semibold">
                   <span>Total</span>
                   <span>{formatMoney(cartTotals.total)}</span>

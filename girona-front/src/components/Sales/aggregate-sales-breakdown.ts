@@ -7,7 +7,7 @@ dayjs.extend(timezone);
 
 const COLOMBIA_TZ = "America/Bogota";
 
-const TARJETA_CODES = new Set(["tarjeta", "tarjeta_credito", "tarjeta_debito"]);
+const DATOFONO_CODES = new Set(["datofono", "tarjeta", "tarjeta_credito", "tarjeta_debito"]);
 
 export type TimeFilter = "all" | "week" | "month" | "quarter" | "year";
 
@@ -31,9 +31,9 @@ export type SalesBreakdownAgg = {
   totalDescuentos: number;
   byPayment: {
     efectivo: number;
-    tarjetas: number;
-    transferencia: number;
-    billetera: number;
+    datofono: number;
+    qr: number;
+    nequi: number;
     otro: number;
     sinEspecificar: number;
   };
@@ -47,9 +47,9 @@ function n(value: unknown) {
 export function aggregateSalesBreakdown(sales: SaleRowLike[]): SalesBreakdownAgg {
   const byPayment: SalesBreakdownAgg["byPayment"] = {
     efectivo: 0,
-    tarjetas: 0,
-    transferencia: 0,
-    billetera: 0,
+    datofono: 0,
+    qr: 0,
+    nequi: 0,
     otro: 0,
     sinEspecificar: 0,
   };
@@ -70,14 +70,14 @@ export function aggregateSalesBreakdown(sales: SaleRowLike[]): SalesBreakdownAgg
     const code = (s.payment_method ?? "").toLowerCase().trim();
     if (!code) {
       byPayment.sinEspecificar += t;
-    } else if (TARJETA_CODES.has(code)) {
-      byPayment.tarjetas += t;
-    } else if (code === "transferencia") {
-      byPayment.transferencia += t;
     } else if (code === "efectivo") {
       byPayment.efectivo += t;
-    } else if (code === "billetera") {
-      byPayment.billetera += t;
+    } else if (DATOFONO_CODES.has(code)) {
+      byPayment.datofono += t;
+    } else if (code === "qr" || code === "transferencia") {
+      byPayment.qr += t;
+    } else if (code === "nequi" || code === "billetera") {
+      byPayment.nequi += t;
     } else {
       byPayment.otro += t;
     }

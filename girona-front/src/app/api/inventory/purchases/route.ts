@@ -9,6 +9,7 @@ type PurchaseItemCreate = {
   quantity?: string | number;
   unit_cost?: string | number;
   supplier_id?: number | null;
+  iva_rate?: number;
 };
 
 type PurchaseCreateBody = {

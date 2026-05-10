@@ -85,6 +85,22 @@ def _as_decimal(value: Decimal | int | str) -> Decimal:
     return Decimal(raw)
 
 
+def _purchase_line_amounts(
+    qty: Decimal, unit_cost: Decimal, iva_rate: Decimal
+) -> tuple[Decimal, Decimal, Decimal]:
+    line_net = (qty * unit_cost).quantize(Decimal("1"))
+    rate = max(Decimal("0"), min(Decimal("1"), iva_rate))
+    line_iva = (line_net * rate).quantize(Decimal("1"))
+    line_gross = (line_net + line_iva).quantize(Decimal("1"))
+    return line_net, line_iva, line_gross
+
+
+def _purchase_item_iva_rate(item: schemas.PurchaseItemCreate) -> Decimal:
+    if item.iva_rate is None:
+        return Decimal("0")
+    return max(Decimal("0"), min(Decimal("1"), _as_decimal(item.iva_rate)))
+
+
 @router.get("/products", response_model=list[schemas.InventoryProductOut])
 def list_products(
     active: bool | None = True,
@@ -421,31 +437,44 @@ def _resolve_purchase_supplier_name(p: models.Purchase) -> str | None:
 
 
 def _purchase_item_to_out(i: models.PurchaseItem) -> schemas.PurchaseItemOut:
+    lt = _as_decimal(i.line_total)
+    li = _as_decimal(getattr(i, "line_iva", 0) or 0)
+    ivr = _as_decimal(getattr(i, "iva_rate", 0) or 0)
+    sub = (lt - li).quantize(Decimal("1"))
     return schemas.PurchaseItemOut(
         id=i.id,
         product_id=i.product_id,
         product_name=i.product_name,
-        is_other_expense=i.product_id is None,
+        is_other_expense=i.product_id is None and (i.other_label or "").strip() != "",
         supplier_id=i.supplier_id,
         quantity=i.quantity,
         unit_cost=i.unit_cost,
-        line_total=i.line_total,
+        iva_rate=ivr,
+        line_iva=li,
+        line_subtotal=sub,
+        line_total=lt,
     )
 
 
 def _purchase_to_out(p: models.Purchase) -> schemas.PurchaseOut:
+    outs = [_purchase_item_to_out(i) for i in p.items]
+    subtotal_net = sum((x.line_subtotal for x in outs), Decimal("0"))
+    total_iva = sum((x.line_iva for x in outs), Decimal("0"))
+    gross = sum((x.line_total for x in outs), Decimal("0"))
     return schemas.PurchaseOut(
         id=p.id,
         supplier_id=p.supplier_id,
         supplier_name=_resolve_purchase_supplier_name(p),
         purchased_at=p.purchased_at,
         received_at=p.received_at,
-        total_cost=p.total_cost,
+        total_cost=gross if outs else _as_decimal(p.total_cost),
+        subtotal_net=subtotal_net,
+        total_iva=total_iva,
         withholding_operation_type=p.withholding_operation_type,
         withholding_source_rate=p.withholding_source_rate,
         withholding_source_amount=p.withholding_source_amount,
         created_at=p.created_at,
-        items=[_purchase_item_to_out(i) for i in p.items],
+        items=outs,
     )
 
 
@@ -510,6 +539,7 @@ def create_purchase(
     )
 
     total = Decimal("0")
+    total_net = Decimal("0")
     db_session.add(purchase)
     db_session.flush()  # assign purchase.id
 
@@ -527,8 +557,11 @@ def create_purchase(
                 supplier_ids.add(supplier_id)
             qty = _as_decimal(item.quantity)
             unit_cost = _as_decimal(item.unit_cost).quantize(Decimal("1"))
-            line_total = (qty * unit_cost).quantize(Decimal("1"))
-            total += line_total
+            iva_r = _purchase_item_iva_rate(item)
+            _, line_iva, line_gross = _purchase_line_amounts(qty, unit_cost, iva_r)
+            line_net = (qty * unit_cost).quantize(Decimal("1"))
+            total += line_gross
+            total_net += line_net
             purchase_item = models.PurchaseItem(
                 purchase_id=purchase.id,
                 product_id=None,
@@ -536,7 +569,9 @@ def create_purchase(
                 supplier_id=supplier_id,
                 quantity=qty,
                 unit_cost=unit_cost,
-                line_total=line_total,
+                iva_rate=iva_r,
+                line_iva=line_iva,
+                line_total=line_gross,
             )
             db_session.add(purchase_item)
             continue
@@ -547,8 +582,11 @@ def create_purchase(
             supplier_ids.add(supplier_id)
         qty = _as_decimal(item.quantity)
         unit_cost = _as_decimal(item.unit_cost).quantize(Decimal("1"))
-        line_total = (qty * unit_cost).quantize(Decimal("1"))
-        total += line_total
+        iva_r = _purchase_item_iva_rate(item)
+        _, line_iva, line_gross = _purchase_line_amounts(qty, unit_cost, iva_r)
+        line_net = (qty * unit_cost).quantize(Decimal("1"))
+        total += line_gross
+        total_net += line_net
 
         purchase_item = models.PurchaseItem(
             purchase_id=purchase.id,
@@ -557,7 +595,9 @@ def create_purchase(
             supplier_id=supplier_id,
             quantity=qty,
             unit_cost=unit_cost,
-            line_total=line_total,
+            iva_rate=iva_r,
+            line_iva=line_iva,
+            line_total=line_gross,
         )
         db_session.add(purchase_item)
 
@@ -617,7 +657,7 @@ def create_purchase(
             if custom_pct is not None:
                 custom_pct = Decimal(str(custom_pct))
             rate, amount = withholding_co.compute_withholding_source(
-                total, op, decl, custom_pct
+                total_net, op, decl, custom_pct
             )
             purchase.withholding_operation_type = op
             if rate is not None and amount is not None:

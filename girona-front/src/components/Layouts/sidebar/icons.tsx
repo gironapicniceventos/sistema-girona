@@ -3,6 +3,7 @@ import { CiShop as CiShopIcon } from "react-icons/ci";
 import { HiOutlineCash } from "react-icons/hi";
 import {
   MdOutlineInventory as MdOutlineInventoryIcon,
+  MdOutlineLocalShipping as MdOutlineLocalShippingIcon,
   MdOutlinePeople as MdOutlinePeopleIcon,
   MdOutlineRestaurantMenu as MdOutlineRestaurantMenuIcon,
 } from "react-icons/md";
@@ -167,6 +168,9 @@ export const MdOutlineInventory = (props: PropsType) => (
   <MdOutlineInventoryIcon {...props} />
 );
 export const MdOutlinePeople = (props: PropsType) => <MdOutlinePeopleIcon {...props} />;
+export const MdOutlineLocalShipping = (props: PropsType) => (
+  <MdOutlineLocalShippingIcon {...props} />
+);
 
 export const CashRegisterIcon = (props: PropsType) => <HiOutlineCash {...props} />;
 

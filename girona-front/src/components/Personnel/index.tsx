@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { SearchIcon } from "@/assets/icons";
 import { standardFormat } from "@/lib/format-number";
 
@@ -89,6 +89,15 @@ type SupplierIngredientRowState =
 function safeNumber(value: unknown) {
   const asNumber = typeof value === "number" ? value : Number.parseFloat(String(value));
   return Number.isFinite(asNumber) ? asNumber : null;
+}
+
+function formatCopPlain(value: number) {
+  return new Intl.NumberFormat("es-CO", {
+    style: "currency",
+    currency: "COP",
+    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
+  }).format(value);
 }
 
 function normalizeMoneyInput(value: string) {
@@ -192,15 +201,29 @@ function getCardBackground(
   return "/backgrounds/proveedor.png";
 }
 
-export default function Personnel() {
+export type PersonnelVariant = "full" | "suppliersOnly";
+
+type PersonnelProps = {
+  variant?: PersonnelVariant;
+};
+
+export default function Personnel({ variant = "full" }: PersonnelProps) {
+  const router = useRouter();
   const searchParams = useSearchParams();
-  const [tab, setTab] = useState<TabKey>("customers");
+  const [tab, setTab] = useState<TabKey>(() =>
+    variant === "suppliersOnly" ? "suppliers" : "customers",
+  );
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    if (variant === "suppliersOnly") return;
     const next = tabKeyFromQueryParam(searchParams.get("tab"));
+    if (next === "suppliers") {
+      router.replace("/compras/proveedores");
+      return;
+    }
     if (next) setTab(next);
-  }, [searchParams]);
+  }, [searchParams, variant, router]);
   const [searchTerm, setSearchTerm] = useState("");
   const [submitStatus, setSubmitStatus] = useState<SubmitStatus>({ kind: "idle" });
 
@@ -561,6 +584,7 @@ export default function Personnel() {
       product_id: number;
       quantity: string;
       unit_cost: string;
+      iva_rate?: number;
     }> = [];
 
     const name = nameInput.trim();
@@ -664,6 +688,7 @@ export default function Personnel() {
             product_id: row.productId,
             quantity: qStr,
             unit_cost: String(unitCostNum),
+            iva_rate: 0.19,
           });
           continue;
         }
@@ -890,14 +915,19 @@ export default function Personnel() {
     tab === "customers" ? "Cliente" : tab === "suppliers" ? "Proveedor" : "Mesero";
   const detailsTotal = detailsEntries.reduce((sum, entry) => sum + entry.total, 0);
 
+  const moduleTitle =
+    variant === "suppliersOnly" ? "Compras - Proveedores" : "Modulo de personal";
+  const moduleSubtitle =
+    variant === "suppliersOnly"
+      ? "Gestioná proveedores, retención en la fuente y compras asociadas."
+      : "Gestiona clientes y meseros desde un solo lugar.";
+
   return (
     <div className="rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-xl font-semibold text-dark dark:text-white">Modulo de personal</h2>
-          <p className="text-sm text-body-color dark:text-dark-6">
-            Gestiona clientes, proveedores y meseros desde un solo lugar.
-          </p>
+          <h2 className="text-xl font-semibold text-dark dark:text-white">{moduleTitle}</h2>
+          <p className="text-sm text-body-color dark:text-dark-6">{moduleSubtitle}</p>
         </div>
         <button
           type="button"
@@ -909,39 +939,32 @@ export default function Personnel() {
       </div>
 
       <div className="mt-5 flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => setTab("customers")}
-          className={
-            tab === "customers"
-              ? "rounded-md bg-primary px-2.5 py-1.5 text-sm font-medium text-white"
-              : "rounded-md border border-stroke px-2.5 py-1.5 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
-          }
-        >
-          Clientes
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("suppliers")}
-          className={
-            tab === "suppliers"
-              ? "rounded-md bg-primary px-2.5 py-1.5 text-sm font-medium text-white"
-              : "rounded-md border border-stroke px-2.5 py-1.5 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
-          }
-        >
-          Proveedores
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("waiters")}
-          className={
-            tab === "waiters"
-              ? "rounded-md bg-primary px-2.5 py-1.5 text-sm font-medium text-white"
-              : "rounded-md border border-stroke px-2.5 py-1.5 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
-          }
-        >
-          Meseros
-        </button>
+        {variant === "full" ? (
+          <>
+            <button
+              type="button"
+              onClick={() => setTab("customers")}
+              className={
+                tab === "customers"
+                  ? "rounded-md bg-primary px-2.5 py-1.5 text-sm font-medium text-white"
+                  : "rounded-md border border-stroke px-2.5 py-1.5 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
+              }
+            >
+              Clientes
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("waiters")}
+              className={
+                tab === "waiters"
+                  ? "rounded-md bg-primary px-2.5 py-1.5 text-sm font-medium text-white"
+                  : "rounded-md border border-stroke px-2.5 py-1.5 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
+              }
+            >
+              Meseros
+            </button>
+          </>
+        ) : null}
 
         <div className="ml-auto flex flex-wrap gap-2">
           <div className="relative w-full max-w-xs">
@@ -965,7 +988,7 @@ export default function Personnel() {
               </h3>
               <p className="text-sm text-body-color dark:text-dark-6">
                 {tab === "suppliers"
-                  ? "Datos basicos primero; debajo aparece retención en la fuente (% opcional, compra/servicio), régimen y declarante, y luego los ingredientes."
+                  ? "Completá el proveedor; la retención en la fuente usa el mismo estilo que en Inventario."
                   : "Completa la informacion basica para este registro."}
               </p>
             </div>
@@ -1057,82 +1080,100 @@ export default function Personnel() {
           </div>
 
           {tab === "suppliers" ? (
-            <div className="mt-4 rounded-md border-2 border-primary/35 bg-white p-4 shadow-sm dark:border-primary/45 dark:bg-gray-dark">
-              <div className="mb-2 text-sm font-semibold text-dark dark:text-white">
-                Retención en la fuente (proveedor)
-              </div>
-              <p className="mb-3 text-xs leading-relaxed text-body-color dark:text-dark-6">
-                Indicá el tipo de operación por defecto y, si corresponde, el porcentaje de retención que
-                aplica este proveedor. Eso es lo que se precarga al registrar una compra en{" "}
-                <span className="font-medium text-dark dark:text-white">Inventario</span>. Si dejás el
-                porcentaje vacío, se usan las tasas estándar según régimen y si declara renta.
+            <div
+              id="supplier-withholding-section"
+              className="mt-4 rounded-md border-2 border-primary/50 bg-white p-3 text-sm dark:border-primary/50 dark:bg-gray-dark"
+            >
+              <div className="font-semibold text-dark dark:text-white">Retención en la fuente</div>
+              <p className="mt-1 text-xs text-body-color dark:text-dark-6">
+                Valores que se precargan al registrar una compra en Inventario. Según el régimen del
+                proveedor (Compras → Proveedores), tipo de operación por defecto y, si lo configurás, un
+                porcentaje fijo de retención. Bases desde las cuales procede la retención:{" "}
+                <span className="font-medium text-dark dark:text-white">
+                  {formatCopPlain(SUPL_RETE_COMPRA_BASE)}
+                </span>{" "}
+                si es compra de bienes y{" "}
+                <span className="font-medium text-dark dark:text-white">
+                  {formatCopPlain(SUPL_RETE_SERVICIO_BASE)}
+                </span>{" "}
+                si es prestación de servicios.
               </p>
-              <div className="mb-4 grid gap-3 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
-                    Compra de bienes o servicio
-                  </label>
-                  <select
-                    value={supplierDefaultWithholdingOp}
-                    onChange={(e) =>
-                      setSupplierDefaultWithholdingOp(
-                        e.target.value === "service" ? "service" : "purchase",
-                      )
-                    }
-                    className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
-                  >
-                    <option value="purchase">Compra</option>
-                    <option value="service">Servicio</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
-                    Porcentaje de retención en la fuente (%)
-                  </label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={supplierWithholdingPercentInput}
-                    onChange={(e) => setSupplierWithholdingPercentInput(e.target.value)}
-                    placeholder="Ej. 2,5 — vacío = tabla legal"
-                    className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
-                  />
-                  {supplierRetentionPreview.invalidCustom ? (
-                    <p className="mt-1 text-[11px] text-red">
-                      Ingresá un número entre 0 y 100 o dejá vacío.
-                    </p>
-                  ) : (
-                    <p className="mt-1 text-[11px] text-body-color dark:text-dark-6">
-                      Opcional. Punto o coma como decimal.
-                    </p>
-                  )}
-                </div>
+              <div className="mt-3">
+                <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
+                  Tipo de operación (compra de bienes / servicio)
+                </label>
+                <select
+                  value={supplierDefaultWithholdingOp}
+                  onChange={(e) =>
+                    setSupplierDefaultWithholdingOp(
+                      e.target.value === "service" ? "service" : "purchase",
+                    )
+                  }
+                  className="w-full max-w-md rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
+                >
+                  <option value="purchase">Compra (bienes)</option>
+                  <option value="service">Servicio</option>
+                </select>
               </div>
-              <div className="mb-4 rounded-md bg-primary/10 px-3 py-3 text-xs dark:bg-primary/20">
-                <p className="font-semibold text-dark dark:text-white">
-                  Vista previa: si el total de la compra supera {supplierRetentionPreview.baseLabel}, la
-                  retención usaría{" "}
-                  <span className="text-primary">
-                    {supplierRetentionPreview.pct.toLocaleString("es-CO", {
-                      minimumFractionDigits: 1,
-                      maximumFractionDigits: 4,
-                    })}
-                    %
-                  </span>
-                  {supplierRetentionPreview.pctSource === "custom"
-                    ? " (valor que digitaste)."
-                    : ` según tabla legal (declarante de renta: ${supplierRetentionPreview.decl ? "sí" : "no"}).`}
-                </p>
-                {supplierRetentionPreview.pctSource === "table" &&
-                supplierRetentionPreview.altPct !== null ? (
-                  <p className="mt-2 text-[11px] text-body-color dark:text-dark-6">
-                    Si no fuera declarante en esta combinación, la tasa sería{" "}
-                    {supplierRetentionPreview.altPct.toLocaleString("es-CO")} %. Cambiá régimen o
-                    declaración para ver otro escenario.
+              <div className="mt-3 max-w-md">
+                <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
+                  Porcentaje de retención en la fuente (%)
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={supplierWithholdingPercentInput}
+                  onChange={(e) => setSupplierWithholdingPercentInput(e.target.value)}
+                  placeholder="Ej. 2,5 — vacío = tabla legal"
+                  className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
+                />
+                {supplierRetentionPreview.invalidCustom ? (
+                  <p className="mt-1 text-[11px] text-red">
+                    Ingresá un número entre 0 y 100 o dejá vacío.
                   </p>
-                ) : null}
+                ) : (
+                  <p className="mt-1 text-[11px] text-body-color dark:text-dark-6">
+                    Opcional. Punto o coma como decimal.
+                  </p>
+                )}
               </div>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="mt-3 space-y-1 text-xs leading-relaxed">
+                {supplierRetentionPreview.invalidCustom ? null : (
+                  <>
+                    <p className="text-body-color dark:text-dark-6">
+                      <span className="font-medium text-dark dark:text-white">Vista previa:</span> si el
+                      total de la compra supera {supplierRetentionPreview.baseLabel}, la retención usaría{" "}
+                      <span
+                        className={
+                          supplierRetentionPreview.pctSource === "custom"
+                            ? "font-semibold text-green dark:text-green-400"
+                            : "font-semibold text-dark dark:text-white"
+                        }
+                      >
+                        {supplierRetentionPreview.pct.toLocaleString("es-CO", {
+                          minimumFractionDigits: 1,
+                          maximumFractionDigits: 4,
+                        })}
+                        %
+                      </span>
+                      {supplierRetentionPreview.pctSource === "custom"
+                        ? " (porcentaje definido arriba)."
+                        : ` según tabla legal (declarante de renta: ${
+                            supplierRetentionPreview.decl ? "sí" : "no"
+                          }).`}
+                    </p>
+                    {supplierRetentionPreview.pctSource === "table" &&
+                    supplierRetentionPreview.altPct !== null ? (
+                      <p className="text-body-color dark:text-dark-6">
+                        Si no fuera declarante en esta combinación, la tasa sería{" "}
+                        {supplierRetentionPreview.altPct.toLocaleString("es-CO")} %. Cambiá régimen o
+                        declaración para ver otro escenario.
+                      </p>
+                    ) : null}
+                  </>
+                )}
+              </div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
                     Tipo de régimen

@@ -281,6 +281,9 @@ def _recompute_order_for_close(order: models.PosOrder, apply_inc: bool) -> None:
 _ALLOWED_PAYMENT_METHODS = frozenset(
     {
         "efectivo",
+        "datofono",
+        "qr",
+        "nequi",
         "tarjeta",
         "tarjeta_credito",
         "tarjeta_debito",
@@ -299,8 +302,9 @@ def _normalize_payment_method(value: str | None) -> str | None:
         raise HTTPException(
             status_code=400,
             detail=(
-                "Medio de pago invalido. Usa: efectivo, tarjeta_credito, tarjeta_debito, "
-                "transferencia, billetera, otro (o tarjeta en registros anteriores)"
+                "Medio de pago invalido. Usa: efectivo, datofono, qr, nequi; "
+                "o valores heredados: tarjeta_credito, tarjeta_debito, transferencia, "
+                "billetera, otro (o tarjeta en registros anteriores)"
             ),
         )
     return v

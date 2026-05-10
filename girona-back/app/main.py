@@ -112,6 +112,20 @@ def _auto_migrate_schema() -> None:
                         conn.execute(
                             text("ALTER TABLE purchase_items ADD COLUMN other_label VARCHAR(200)")
                         )
+                    if "iva_rate" not in pi_cols:
+                        conn.execute(
+                            text(
+                                "ALTER TABLE purchase_items ADD COLUMN iva_rate "
+                                "NUMERIC(10,6) NOT NULL DEFAULT 0"
+                            )
+                        )
+                    if "line_iva" not in pi_cols:
+                        conn.execute(
+                            text(
+                                "ALTER TABLE purchase_items ADD COLUMN line_iva "
+                                "NUMERIC(14,4) NOT NULL DEFAULT 0"
+                            )
+                        )
                 sup_sqlite = conn.execute(
                     text("SELECT name FROM sqlite_master WHERE type='table' AND name='suppliers'")
                 ).first()
@@ -196,6 +210,18 @@ def _auto_migrate_schema() -> None:
             )
             conn.execute(
                 text("ALTER TABLE IF EXISTS purchase_items ADD COLUMN IF NOT EXISTS other_label VARCHAR(200)")
+            )
+            conn.execute(
+                text(
+                    "ALTER TABLE IF EXISTS purchase_items ADD COLUMN IF NOT EXISTS iva_rate "
+                    "NUMERIC(10, 6) NOT NULL DEFAULT 0"
+                )
+            )
+            conn.execute(
+                text(
+                    "ALTER TABLE IF EXISTS purchase_items ADD COLUMN IF NOT EXISTS line_iva "
+                    "NUMERIC(14, 4) NOT NULL DEFAULT 0"
+                )
             )
             try:
                 conn.execute(

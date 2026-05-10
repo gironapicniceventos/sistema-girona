@@ -155,6 +155,9 @@ class PurchaseItem(Base):
     supplier_id = Column(Integer, ForeignKey("suppliers.id"), index=True, nullable=True)
     quantity = Column(Numeric(14, 4), nullable=False)
     unit_cost = Column(Numeric(14, 4), nullable=False)
+    # Fracción IVA (0.19 = 19 %). line_total = (qty*unit_cost) + line_iva (total con IVA).
+    iva_rate = Column(Numeric(10, 6), nullable=False, default=0)
+    line_iva = Column(Numeric(14, 4), nullable=False, default=0)
     line_total = Column(Numeric(14, 4), nullable=False, default=0)
 
     purchase = relationship("Purchase", back_populates="items")

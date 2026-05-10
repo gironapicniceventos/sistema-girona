@@ -20,6 +20,9 @@ type PurchaseItem = {
   product_name: string | null;
   quantity: string;
   unit_cost: string;
+  iva_rate?: string;
+  line_iva?: string;
+  line_subtotal?: string;
   line_total: string;
 };
 
@@ -30,9 +33,25 @@ type Purchase = {
   purchased_at: string | null;
   received_at: string | null;
   total_cost: string;
+  subtotal_net?: string;
+  total_iva?: string;
   created_at: string;
   items: PurchaseItem[];
 };
+
+function lineSubtotalCop(it: PurchaseItem): number {
+  const sub = Number.parseFloat(String(it.line_subtotal ?? ""));
+  if (Number.isFinite(sub)) return sub;
+  const total = Number.parseFloat(String(it.line_total));
+  const iva = Number.parseFloat(String(it.line_iva ?? "0"));
+  if (Number.isFinite(total) && Number.isFinite(iva)) return total - iva;
+  return Number.isFinite(total) ? total : 0;
+}
+
+function lineIvaCop(it: PurchaseItem): number {
+  const v = Number.parseFloat(String(it.line_iva ?? ""));
+  return Number.isFinite(v) ? v : 0;
+}
 
 function formatCop(value: unknown) {
   const asNumber = typeof value === "number" ? value : Number.parseFloat(String(value));
@@ -126,6 +145,12 @@ function buildPurchasesPdf(
     const proveedor =
       (p.supplier_name && String(p.supplier_name).trim()) ||
       (p.supplier_id != null ? `#${p.supplier_id}` : "—");
+    const pSub = Number.parseFloat(String(p.subtotal_net ?? ""));
+    const pIva = Number.parseFloat(String(p.total_iva ?? ""));
+    const extraTotals =
+      Number.isFinite(pSub) && Number.isFinite(pIva)
+        ? pdfText(`  · Neto ${formatCop(pSub)} · IVA ${formatCop(pIva)}`)
+        : "";
     const fecha = p.received_at
       ? new Date(p.received_at).toLocaleString("es-CO")
       : "—";
@@ -133,14 +158,22 @@ function buildPurchasesPdf(
     doc.setFont("helvetica", "bold");
     doc.text(
       pdfText(
-        `Compra #${p.id}  ·  ${formatCop(p.total_cost)}  ·  ${proveedor}`,
+        `Compra #${p.id}  ·  Tot ${formatCop(p.total_cost)}  ·  ${proveedor}`,
       ),
       margin,
       y,
     );
-    y += 7;
-    doc.setFont("helvetica", "normal");
+    y += 5;
+    if (extraTotals) {
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.text(extraTotals, margin, y);
+      y += 6;
+    } else {
+      y += 1;
+    }
     doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
     doc.text(pdfText(`Recibida: ${fecha}`), margin, y);
     y += 6;
     if (p.items?.length) {
@@ -156,9 +189,13 @@ function buildPurchasesPdf(
           : it.product_id != null
             ? `#${it.product_id}`
             : "—") ?? "";
+        const sub = lineSubtotalCop(it);
+        const ivaL = lineIvaCop(it);
         const line = `  - ${label}  |  ${formatQty(
           it.quantity,
-        )}  |  c/u ${formatCop(it.unit_cost)}  |  ${formatCop(it.line_total)}`;
+        )}  |  c/u ${formatCop(it.unit_cost)}  |  Neto ${formatCop(sub)}  |  IVA ${formatCop(ivaL)}  |  Tot ${formatCop(
+          it.line_total,
+        )}`;
         const split = doc.splitTextToSize(pdfText(line), pageW - margin * 2);
         for (const piece of split) {
           doc.text(piece, margin, y);
@@ -366,13 +403,15 @@ export default function PurchasesReportList() {
                 </th>
                 <th className="px-4 py-3 text-sm font-medium text-dark dark:text-white">Items</th>
                 <th className="px-4 py-3 text-sm font-medium text-dark dark:text-white">Total</th>
+                <th className="px-4 py-3 text-sm font-medium text-dark dark:text-white">Neto</th>
+                <th className="px-4 py-3 text-sm font-medium text-dark dark:text-white">IVA</th>
               </tr>
             </thead>
             <tbody>
               {filteredPurchases.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={7}
                     className="px-4 py-6 text-sm text-body-color dark:text-dark-6"
                   >
                     No hay compras en este rango.
@@ -397,9 +436,15 @@ export default function PurchasesReportList() {
                       <td className="px-4 py-3 text-sm text-body-color dark:text-dark-6">
                         {formatCop(p.total_cost)}
                       </td>
+                      <td className="px-4 py-3 text-sm text-body-color dark:text-dark-6">
+                        {p.subtotal_net != null ? formatCop(p.subtotal_net) : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-body-color dark:text-dark-6">
+                        {p.total_iva != null ? formatCop(p.total_iva) : "—"}
+                      </td>
                     </tr>
                     <tr className="border-b border-stroke dark:border-dark-3">
-                      <td colSpan={5} className="px-4 pb-4 pt-2">
+                      <td colSpan={7} className="px-4 pb-4 pt-2">
                         <div className="rounded-md border border-stroke bg-white p-3 text-sm dark:border-dark-3 dark:bg-dark-2">
                           <div className="mb-2 text-xs font-semibold uppercase text-dark-6 dark:text-dark-6">
                             Items comprados
@@ -411,7 +456,9 @@ export default function PurchasesReportList() {
                                   <tr className="text-left text-xs uppercase text-dark-6 dark:text-dark-6">
                                     <th className="px-2 py-1">Producto</th>
                                     <th className="px-2 py-1">Cantidad</th>
-                                    <th className="px-2 py-1">Costo unitario</th>
+                                    <th className="px-2 py-1">Costo u.</th>
+                                    <th className="px-2 py-1">Neto</th>
+                                    <th className="px-2 py-1">IVA</th>
                                     <th className="px-2 py-1">Total</th>
                                   </tr>
                                 </thead>
@@ -430,6 +477,12 @@ export default function PurchasesReportList() {
                                       </td>
                                       <td className="px-2 py-1 text-body-color dark:text-dark-6">
                                         {formatCop(item.unit_cost)}
+                                      </td>
+                                      <td className="px-2 py-1 text-body-color dark:text-dark-6">
+                                        {formatCop(lineSubtotalCop(item))}
+                                      </td>
+                                      <td className="px-2 py-1 text-body-color dark:text-dark-6">
+                                        {formatCop(lineIvaCop(item))}
                                       </td>
                                       <td className="px-2 py-1 text-body-color dark:text-dark-6">
                                         {formatCop(item.line_total)}

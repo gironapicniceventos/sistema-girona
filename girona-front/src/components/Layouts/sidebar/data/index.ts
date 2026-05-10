@@ -28,6 +28,12 @@ export const NAV_DATA = [
         items: [],
       },
       {
+        title: "Compras - Proveedores",
+        url: "/compras/proveedores",
+        icon: Icons.MdOutlineLocalShipping,
+        items: [],
+      },
+      {
         title: "Personal",
         url: "/personnel",
         icon: Icons.MdOutlinePeople,

@@ -116,6 +116,8 @@ type PurchaseItemRow = {
   supplier_id: string;
   quantity: string;
   total_cost: string;
+  /** Fracción IVA 0–1 sobre (cantidad × costo unitario neto). */
+  iva_rate: string;
 };
 
 type RecipeIngredientRow = {
@@ -459,6 +461,7 @@ export default function Inventory({ backendBaseUrl }: { backendBaseUrl: string }
       supplier_id: "",
       quantity: "",
       total_cost: "",
+      iva_rate: "0.19",
     },
   ]);
   const [purchaseWithholdingOp, setPurchaseWithholdingOp] =
@@ -708,6 +711,7 @@ export default function Inventory({ backendBaseUrl }: { backendBaseUrl: string }
         supplier_id: "",
         quantity: "",
         total_cost: "",
+        iva_rate: "0.19",
       },
     ]);
   }
@@ -807,6 +811,7 @@ export default function Inventory({ backendBaseUrl }: { backendBaseUrl: string }
         supplier_id: "",
         quantity: "",
         total_cost: "",
+        iva_rate: "0.19",
       },
     ]);
   }
@@ -891,6 +896,7 @@ export default function Inventory({ backendBaseUrl }: { backendBaseUrl: string }
       supplier_id?: number | null;
       quantity: string;
       unit_cost: string;
+      iva_rate?: number;
     }> = [];
 
     for (let index = 0; index < purchaseItems.length; index += 1) {
@@ -978,6 +984,9 @@ export default function Inventory({ backendBaseUrl }: { backendBaseUrl: string }
         return;
       }
 
+      const ivaFrac = Number.parseFloat(row.iva_rate || "0");
+      const iva_rate = Math.min(1, Math.max(0, Number.isFinite(ivaFrac) ? ivaFrac : 0));
+
       if (row.mode === "other") {
         itemsPayload.push({
           is_other_expense: true,
@@ -985,6 +994,7 @@ export default function Inventory({ backendBaseUrl }: { backendBaseUrl: string }
           supplier_id: supplierId,
           quantity,
           unit_cost: String(unitCost),
+          iva_rate,
         });
       } else if (row.mode === "existing") {
         itemsPayload.push({
@@ -992,6 +1002,7 @@ export default function Inventory({ backendBaseUrl }: { backendBaseUrl: string }
           supplier_id: supplierId,
           quantity,
           unit_cost: String(unitCost),
+          iva_rate,
         });
       } else {
         itemsPayload.push({
@@ -1001,6 +1012,7 @@ export default function Inventory({ backendBaseUrl }: { backendBaseUrl: string }
           supplier_id: supplierId,
           quantity,
           unit_cost: String(unitCost),
+          iva_rate,
         });
       }
     }
@@ -1343,19 +1355,21 @@ export default function Inventory({ backendBaseUrl }: { backendBaseUrl: string }
               <span className="font-semibold">Compra vs Servicio</span> según tabla DIAN).
             </p>
             <div className="mb-2 text-xs text-body-color dark:text-dark-6">
-              El costo unitario se calcula automaticamente desde el costo total y la cantidad.{" "}
+              El costo unitario se calcula desde el total neto (sin IVA) y la cantidad. El IVA se aplica sobre ese
+              subtotal.{" "}
               <span className="font-medium text-dark dark:text-white">
                 Otros: egreso o compra con nombre propio, sin afectar stock de productos de inventario.
               </span>
             </div>
-            <div className="mb-2 grid grid-cols-1 gap-2 text-xs font-semibold uppercase text-dark-6 md:grid-cols-[0.8fr_1.6fr_0.9fr_0.9fr_0.9fr_0.9fr_0.9fr_auto]">
+            <div className="mb-2 grid grid-cols-1 gap-2 text-xs font-semibold uppercase text-dark-6 md:grid-cols-[0.75fr_1.45fr_0.75fr_0.75fr_0.75fr_0.72fr_0.58fr_0.72fr_auto]">
               <div>Tipo</div>
               <div>Nombre producto</div>
               <div>Unidad</div>
               <div>Proveedor</div>
               <div>Cantidad</div>
-              <div>Costo total</div>
-              <div>Costo unitario</div>
+              <div>Total neto</div>
+              <div>IVA</div>
+              <div>C. unit.</div>
               <div />
             </div>
             <div className="space-y-2">
@@ -1364,7 +1378,7 @@ export default function Inventory({ backendBaseUrl }: { backendBaseUrl: string }
                 return (
                   <div
                     key={`purchase-item-${index}`}
-                    className="grid grid-cols-1 gap-2 md:grid-cols-[0.8fr_1.6fr_0.9fr_0.9fr_0.9fr_0.9fr_0.9fr_auto]"
+                    className="grid grid-cols-1 gap-2 md:grid-cols-[0.75fr_1.45fr_0.75fr_0.75fr_0.75fr_0.72fr_0.58fr_0.72fr_auto]"
                   >
                     <select
                       value={item.mode}
@@ -1477,8 +1491,18 @@ export default function Inventory({ backendBaseUrl }: { backendBaseUrl: string }
                       }
                       className="w-full rounded-md border border-stroke bg-white px-2 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
                       inputMode="numeric"
-                      placeholder="Costo total"
+                      placeholder="Total neto (sin IVA)"
                     />
+                    <select
+                      value={item.iva_rate}
+                      onChange={(e) => updatePurchaseRow(index, "iva_rate", e.target.value)}
+                      className="w-full rounded-md border border-stroke bg-white px-2 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
+                      title="IVA sobre subtotal neto"
+                    >
+                      <option value="0">0%</option>
+                      <option value="0.05">5%</option>
+                      <option value="0.19">19%</option>
+                    </select>
                     <div className="flex items-center rounded-md border border-stroke bg-white px-2 py-2 text-sm text-dark dark:border-dark-3 dark:bg-gray-dark dark:text-white">
                       {formatCop(unitCost)}
                     </div>
@@ -1510,7 +1534,7 @@ export default function Inventory({ backendBaseUrl }: { backendBaseUrl: string }
               Retención en la fuente
             </div>
             <p className="mt-1 text-xs text-body-color dark:text-dark-6">
-              Según régimen del proveedor (Personas → Proveedores), tipo de operación de esta orden y, si lo
+              Según régimen del proveedor (Compras → Proveedores), tipo de operación de esta orden y, si lo
               configuraste en el proveedor, un porcentaje fijo de retención. Bases desde las cuales procede la
               retención:{" "}
               Bases desde las cuales procede la retención:{" "}

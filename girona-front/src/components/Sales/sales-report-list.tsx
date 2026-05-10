@@ -20,11 +20,14 @@ const COLOMBIA_TZ = "America/Bogota";
 
 const PAYMENT_METHOD_LABEL: Record<string, string> = {
   efectivo: "Efectivo",
-  tarjeta: "Tarjeta (crédito/débito)",
-  tarjeta_credito: "Tarjeta de Crédito",
-  tarjeta_debito: "Tarjeta de Débito",
-  transferencia: "Transferencia",
-  billetera: "Billetera / Nequi / Daviplata",
+  datofono: "Datáfono",
+  qr: "QR",
+  nequi: "Nequi",
+  tarjeta: "Tarjeta (histórico)",
+  tarjeta_credito: "Tarjeta de crédito (histórico)",
+  tarjeta_debito: "Tarjeta de débito (histórico)",
+  transferencia: "Transferencia / QR (histórico)",
+  billetera: "Billetera / Nequi (histórico)",
   otro: "Otro",
 };
 

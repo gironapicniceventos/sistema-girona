@@ -16,9 +16,9 @@ const PAYMENT_ROWS: Array<{
   label: string;
 }> = [
   { key: "efectivo", label: "Efectivo" },
-  { key: "tarjetas", label: "Tarjetas" },
-  { key: "transferencia", label: "Transferencias" },
-  { key: "billetera", label: "Billetera / Nequi / etc." },
+  { key: "datofono", label: "Datáfono" },
+  { key: "qr", label: "QR" },
+  { key: "nequi", label: "Nequi" },
   { key: "otro", label: "Otro" },
   { key: "sinEspecificar", label: "Sin medio registrado" },
 ];
@@ -146,9 +146,9 @@ export default function SalesBreakdownPanel({
                     <td className="px-2 py-2 text-right text-dark dark:text-white">
                       {m(
                         breakdown.byPayment.efectivo +
-                          breakdown.byPayment.tarjetas +
-                          breakdown.byPayment.transferencia +
-                          breakdown.byPayment.billetera +
+                          breakdown.byPayment.datofono +
+                          breakdown.byPayment.qr +
+                          breakdown.byPayment.nequi +
                           breakdown.byPayment.otro +
                           breakdown.byPayment.sinEspecificar,
                       )}

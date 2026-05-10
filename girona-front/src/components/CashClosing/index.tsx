@@ -111,6 +111,9 @@ function paymentLabel(code: string | null | undefined) {
   const c = code.toLowerCase();
   const map: Record<string, string> = {
     efectivo: "Efectivo",
+    datofono: "Datáfono",
+    qr: "QR",
+    nequi: "Nequi",
     tarjeta: "Tarjeta",
     tarjeta_credito: "Tarjeta crédito",
     tarjeta_debito: "Tarjeta débito",
@@ -143,10 +146,9 @@ type CashClosingMetrics = {
   totalPropinas: number;
   totalCortesias: number;
   egresosCompras: number;
-  totalTarjetaCredito: number;
-  totalTarjetaDebito: number;
-  totalTarjetaSinTipo: number;
-  totalTransferencias: number;
+  totalDatofono: number;
+  totalQr: number;
+  totalNequi: number;
 };
 
 type CashClosingPdfInput = {
@@ -203,18 +205,13 @@ function buildCashClosingPdf(input: CashClosingPdfInput) {
   const linesResumen = [
     `Ventas: ${formatMoney(metrics.totalVentas)} (${metrics.n} transaccion(es))`,
     `Propinas / servicio: ${formatMoney(metrics.totalPropinas)}`,
-    `Tarjeta credito: ${formatMoney(metrics.totalTarjetaCredito)}`,
-    `Tarjeta debito: ${formatMoney(metrics.totalTarjetaDebito)}`,
-    `Transferencias: ${formatMoney(metrics.totalTransferencias)}`,
+    `Datáfono (incl. ventas históricas con tarjeta): ${formatMoney(metrics.totalDatofono)}`,
+    `QR (incl. transferencias históricas): ${formatMoney(metrics.totalQr)}`,
+    `Nequi (incl. billetera histórica): ${formatMoney(metrics.totalNequi)}`,
     `Cortesias: ${formatMoney(metrics.totalCortesias)}`,
     `Compras / egresos: ${formatMoney(metrics.egresosCompras)} (${purchasesDay.length} registro(s))`,
     `Ingresos - egresos (referencia): ${formatMoney(metrics.totalVentas - metrics.egresosCompras)}`,
   ];
-  if (metrics.totalTarjetaSinTipo > 0) {
-    linesResumen.push(
-      `Tarjeta sin tipo: ${formatMoney(metrics.totalTarjetaSinTipo)}`,
-    );
-  }
   for (const line of linesResumen) {
     y = ensurePageSpace(doc, y, 24, margin);
     doc.text(pdfText(line), margin, y);
@@ -364,21 +361,23 @@ export default function CashClosing() {
     const totalPropinas = sales.reduce((a, s) => a + safeNumber(s.service_total), 0);
     const totalCortesias = sales.reduce((a, s) => a + safeNumber(s.courtesy_total), 0);
     const egresosCompras = purchasesDay.reduce((a, p) => a + safeNumber(p.total_cost), 0);
-    let totalTarjetaCredito = 0;
-    let totalTarjetaDebito = 0;
-    let totalTarjetaSinTipo = 0;
-    let totalTransferencias = 0;
+    let totalDatofono = 0;
+    let totalQr = 0;
+    let totalNequi = 0;
     for (const s of sales) {
       const code = (s.payment_method ?? "").toLowerCase();
       const t = safeNumber(s.total);
-      if (code === "tarjeta_credito") {
-        totalTarjetaCredito += t;
-      } else if (code === "tarjeta_debito") {
-        totalTarjetaDebito += t;
-      } else if (code === "tarjeta") {
-        totalTarjetaSinTipo += t;
-      } else if (code === "transferencia") {
-        totalTransferencias += t;
+      if (
+        code === "datofono" ||
+        code === "tarjeta_credito" ||
+        code === "tarjeta_debito" ||
+        code === "tarjeta"
+      ) {
+        totalDatofono += t;
+      } else if (code === "qr" || code === "transferencia") {
+        totalQr += t;
+      } else if (code === "nequi" || code === "billetera") {
+        totalNequi += t;
       }
     }
     return {
@@ -387,10 +386,9 @@ export default function CashClosing() {
       totalPropinas,
       totalCortesias,
       egresosCompras,
-      totalTarjetaCredito,
-      totalTarjetaDebito,
-      totalTarjetaSinTipo,
-      totalTransferencias,
+      totalDatofono,
+      totalQr,
+      totalNequi,
     };
   }, [sales, purchasesDay]);
 
@@ -513,22 +511,25 @@ export default function CashClosing() {
           <p className="mt-1 text-2xl font-semibold text-dark dark:text-white">{formatMoney(metrics.totalPropinas)}</p>
         </div>
         <div className="rounded-lg border border-stroke border-l-4 border-l-sky-500 bg-white p-4 shadow-1 dark:border-dark-3 dark:bg-gray-dark">
-          <p className="text-xs font-medium uppercase text-body-color dark:text-dark-6">Tarjeta crédito (día)</p>
+          <p className="text-xs font-medium uppercase text-body-color dark:text-dark-6">Datáfono (día)</p>
           <p className="mt-1 text-2xl font-semibold text-dark dark:text-white">
-            {formatMoney(metrics.totalTarjetaCredito)}
+            {formatMoney(metrics.totalDatofono)}
           </p>
+          <p className="text-xs text-body-color dark:text-dark-6">Incluye ventas con tarjeta (histórico)</p>
         </div>
         <div className="rounded-lg border border-stroke border-l-4 border-l-teal-500 bg-white p-4 shadow-1 dark:border-dark-3 dark:bg-gray-dark">
-          <p className="text-xs font-medium uppercase text-body-color dark:text-dark-6">Tarjeta débito (día)</p>
+          <p className="text-xs font-medium uppercase text-body-color dark:text-dark-6">QR (día)</p>
           <p className="mt-1 text-2xl font-semibold text-dark dark:text-white">
-            {formatMoney(metrics.totalTarjetaDebito)}
+            {formatMoney(metrics.totalQr)}
           </p>
+          <p className="text-xs text-body-color dark:text-dark-6">Incluye transferencias (histórico)</p>
         </div>
         <div className="rounded-lg border border-stroke border-l-4 border-l-violet-500 bg-white p-4 shadow-1 dark:border-dark-3 dark:bg-gray-dark">
-          <p className="text-xs font-medium uppercase text-body-color dark:text-dark-6">Transferencias (día)</p>
+          <p className="text-xs font-medium uppercase text-body-color dark:text-dark-6">Nequi (día)</p>
           <p className="mt-1 text-2xl font-semibold text-dark dark:text-white">
-            {formatMoney(metrics.totalTransferencias)}
+            {formatMoney(metrics.totalNequi)}
           </p>
+          <p className="text-xs text-body-color dark:text-dark-6">Incluye billetera (histórico)</p>
         </div>
         <div className="rounded-lg border border-stroke bg-white p-4 shadow-1 dark:border-dark-3 dark:bg-gray-dark">
           <p className="text-xs font-medium uppercase text-body-color dark:text-dark-6">Cortesías (monto)</p>
@@ -548,18 +549,6 @@ export default function CashClosing() {
           </p>
         </div>
       </div>
-
-      {metrics.totalTarjetaSinTipo > 0 ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100">
-          <span className="font-semibold">Tarjeta sin tipo (día): </span>
-          {formatMoney(metrics.totalTarjetaSinTipo)}
-          <span className="text-amber-900/90 dark:text-amber-200/90">
-            {" "}
-            — ventas guardadas solo como «Tarjeta». En POS usá crédito o débito para que aparezcan en las tarjetas
-            correctas.
-          </span>
-        </div>
-      ) : null}
 
       <div className="rounded-lg border border-stroke bg-white p-6 shadow-1 dark:border-dark-3 dark:bg-gray-dark">
         <h3 className="text-lg font-semibold text-dark dark:text-white">Arqueo de efectivo (manual)</h3>

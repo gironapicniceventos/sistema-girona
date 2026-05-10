@@ -154,6 +154,8 @@ class PurchaseItemCreate(BaseModel):
     supplier_id: int | None = None
     quantity: Decimal = Field(gt=0)
     unit_cost: Decimal = Field(ge=0)
+    # Fracción 0–1 sobre el subtotal (qty*unit_cost), costo inventario sin IVA.
+    iva_rate: Decimal | None = Field(default=None, ge=0, le=1)
 
 
 class PurchaseCreate(BaseModel):
@@ -172,6 +174,9 @@ class PurchaseItemOut(BaseModel):
     supplier_id: int | None
     quantity: Decimal
     unit_cost: Decimal
+    iva_rate: Decimal
+    line_iva: Decimal
+    line_subtotal: Decimal
     line_total: Decimal
 
     class Config:
@@ -184,7 +189,10 @@ class PurchaseOut(BaseModel):
     supplier_name: str | None = None
     purchased_at: datetime | None
     received_at: datetime | None
+    # Total orden (suma líneas con IVA).
     total_cost: Decimal
+    subtotal_net: Decimal
+    total_iva: Decimal
     withholding_operation_type: str | None = None
     withholding_source_rate: Decimal | None = None
     withholding_source_amount: Decimal | None = None
@@ -405,7 +413,9 @@ class PosOrderClose(BaseModel):
     payment_method: str | None = Field(
         default=None,
         max_length=32,
-        description="efectivo|tarjeta_credito|tarjeta_debito|transferencia|billetera|otro|tarjeta(legacy)",
+        description=(
+            "efectivo|datofono|qr|nequi|tarjeta_credito|tarjeta_debito|transferencia|billetera|otro|tarjeta(legacy)"
+        ),
     )
 
 
