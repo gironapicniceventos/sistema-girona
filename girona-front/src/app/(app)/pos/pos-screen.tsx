@@ -49,14 +49,34 @@ function pdfLatin1Safe(value: string) {
 }
 const POS_HIDDEN_FINISHED_ORDERS_KEY = "pos_hidden_finished_orders_v1";
 const TABLE_SECTION_VALUES = [
+  "ENTRADA",
+  "LOBBY",
   "TERRAZA 1",
   "TERRAZA 2",
-  "ZONA PICNIC",
-  "ZONA PRINCIPAL",
+  "PREMIUM",
+  "ROUSSE",
 ] as const;
 
 type TableSectionValue = (typeof TABLE_SECTION_VALUES)[number];
 type TableSectionFilter = TableSectionValue | "TODAS";
+
+function parseTableNumberFromName(raw: string): number | null {
+  const s = raw.trim();
+  if (!s) return null;
+  if (/^\d+$/.test(s)) return Number.parseInt(s, 10);
+  const m = s.match(/(\d+)/);
+  return m ? Number.parseInt(m[1]!, 10) : null;
+}
+
+function sectionForTableNumber(n: number): TableSectionValue {
+  if (!Number.isFinite(n) || n < 1) return "ENTRADA";
+  if (n <= 10) return "ENTRADA";
+  if (n <= 29) return "LOBBY";
+  if (n <= 39) return "TERRAZA 1";
+  if (n <= 49) return "TERRAZA 2";
+  if (n <= 59) return "PREMIUM";
+  return "ROUSSE";
+}
 
 function loadHiddenFinishedOrderIdsFromStorage() {
   if (typeof window === "undefined") return new Set<number>();
@@ -226,6 +246,7 @@ const BAR_CATEGORY_KEYS = new Set(
     "cervezas internacionales",
     "micheladas",
     "licores y shots",
+    "licores & shots",
     "cubetazos",
     "cocteleria",
     "vinos",
@@ -268,7 +289,7 @@ function normalizeTableSection(rawSection?: string | null): TableSectionValue {
   if ((TABLE_SECTION_VALUES as readonly string[]).includes(section)) {
     return section as TableSectionValue;
   }
-  return "ZONA PRINCIPAL";
+  return "ENTRADA";
 }
 
 const ORDER_STATUS_META: Record<
@@ -725,7 +746,7 @@ export default function PosScreen() {
   );
 
   const [newTableName, setNewTableName] = useState("");
-  const [newTableSection, setNewTableSection] = useState<TableSectionValue>("ZONA PRINCIPAL");
+  const [newTableSection, setNewTableSection] = useState<TableSectionValue>("ENTRADA");
   const [selectedSectionFilter, setSelectedSectionFilter] = useState<TableSectionFilter>("TODAS");
   const [submitStatus, setSubmitStatus] = useState<
     | { kind: "idle" }
@@ -733,6 +754,11 @@ export default function PosScreen() {
     | { kind: "success"; message: string }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
+
+  useEffect(() => {
+    const n = parseTableNumberFromName(newTableName);
+    if (n != null) setNewTableSection(sectionForTableNumber(n));
+  }, [newTableName]);
 
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState("efectivo");

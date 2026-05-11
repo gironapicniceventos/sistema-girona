@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import logging
 import os
+import re
 import subprocess
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -35,11 +36,14 @@ BAR_CATEGORY_KEYS = {
     "vinos",
 }
 
+# Toma de pedidos: zona según número de mesa (1–73 y posteriores en ROUSSE).
 POS_TABLE_SECTIONS = (
+    "ENTRADA",
+    "LOBBY",
     "TERRAZA 1",
     "TERRAZA 2",
-    "ZONA PICNIC",
-    "ZONA PRINCIPAL",
+    "PREMIUM",
+    "ROUSSE",
 )
 
 
@@ -47,10 +51,57 @@ def _norm(value: str) -> str:
     return value.strip().lower()
 
 
+def parse_pos_table_number(name: str) -> int | None:
+    s = (name or "").strip()
+    if not s:
+        return None
+    if re.fullmatch(r"\d+", s):
+        return int(s)
+    m = re.search(r"(\d+)", s)
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def section_for_pos_table_number(n: int) -> str:
+    if n < 1:
+        return "ENTRADA"
+    if n <= 10:
+        return "ENTRADA"
+    if n <= 29:
+        return "LOBBY"
+    if n <= 39:
+        return "TERRAZA 1"
+    if n <= 49:
+        return "TERRAZA 2"
+    if n <= 59:
+        return "PREMIUM"
+    return "ROUSSE"
+
+
+def resync_pos_table_sections(db_session: Session) -> bool:
+    """Alinea `section` con el número en el nombre (p. ej. '12', 'Mesa 30')."""
+    dirty = False
+    rows = (
+        db_session.query(models.PosTable)
+        .filter(models.PosTable.is_active == True)  # noqa: E712
+        .all()
+    )
+    for t in rows:
+        n = parse_pos_table_number(t.name)
+        if n is None:
+            continue
+        want = section_for_pos_table_number(n)
+        if t.section != want:
+            t.section = want
+            dirty = True
+    return dirty
+
+
 def _normalize_table_section(raw_section: str | None) -> str:
     section = (raw_section or "").strip().upper()
     if not section:
-        return "ZONA PRINCIPAL"
+        return "ENTRADA"
     valid_sections = {value.upper(): value for value in POS_TABLE_SECTIONS}
     if section not in valid_sections:
         raise HTTPException(
@@ -392,7 +443,11 @@ def _create_sale_from_order(
 @router.post("/tables", response_model=schemas.PosTableOut, status_code=201)
 def create_table(payload: schemas.PosTableCreate, db_session: Session = Depends(db.get_db)):
     name = payload.name.strip()
-    section = _normalize_table_section(payload.section)
+    n = parse_pos_table_number(name)
+    if n is not None:
+        section = section_for_pos_table_number(n)
+    else:
+        section = _normalize_table_section(payload.section)
     existing = (
         db_session.query(models.PosTable)
         .filter(models.PosTable.is_active == True, models.PosTable.name == name)  # noqa: E712
@@ -409,6 +464,8 @@ def create_table(payload: schemas.PosTableCreate, db_session: Session = Depends(
 
 @router.get("/tables", response_model=list[schemas.PosTableOut])
 def list_tables(db_session: Session = Depends(db.get_db)):
+    if resync_pos_table_sections(db_session):
+        db_session.commit()
     return (
         db_session.query(models.PosTable)
         .filter(models.PosTable.is_active == True)  # noqa: E712

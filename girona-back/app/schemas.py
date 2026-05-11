@@ -314,7 +314,7 @@ class ConsumeSaleResult(BaseModel):
 
 class PosTableCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    section: str = Field(default="ZONA PRINCIPAL", min_length=1, max_length=100)
+    section: str = Field(default="ENTRADA", min_length=1, max_length=100)
 
 
 class PosTableOut(BaseModel):

@@ -202,7 +202,7 @@ class PosTable(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, nullable=False, index=True)
-    section = Column(String, nullable=False, default="ZONA PRINCIPAL")
+    section = Column(String, nullable=False, default="ENTRADA")
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

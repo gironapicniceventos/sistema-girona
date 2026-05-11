@@ -28,7 +28,7 @@ def _auto_migrate_schema() -> None:
                         conn.execute(
                             text(
                                 "ALTER TABLE pos_tables "
-                                "ADD COLUMN section VARCHAR NOT NULL DEFAULT 'ZONA PRINCIPAL'"
+                                "ADD COLUMN section VARCHAR NOT NULL DEFAULT 'ENTRADA'"
                             )
                         )
                 pos_orders_exists = conn.execute(
@@ -277,7 +277,7 @@ def _auto_migrate_schema() -> None:
             conn.execute(
                 text(
                     "ALTER TABLE IF EXISTS pos_tables "
-                    "ADD COLUMN IF NOT EXISTS section VARCHAR NOT NULL DEFAULT 'ZONA PRINCIPAL'"
+                    "ADD COLUMN IF NOT EXISTS section VARCHAR NOT NULL DEFAULT 'ENTRADA'"
                 )
             )
             conn.execute(
