@@ -534,8 +534,6 @@ function buildPreFacturaPdf(
     y += 6;
     doc.setFont("helvetica", "normal");
   };
-  addTotalRow("Subtotal", preview.subtotal);
-  addTotalRow("Servicio", preview.serviceTotal);
   addTotalRow("Total", preview.total, true);
   if (y > 275) {
     doc.addPage();
@@ -1365,8 +1363,6 @@ export default function PosScreen() {
         <tbody>${rows}</tbody>
       </table>
       <div style="margin-top:12px;font-size:13px;">
-        <p style="margin:2px 0;">Subtotal: ${formatMoney(paymentPreview.subtotal)}</p>
-        <p style="margin:2px 0;">Servicio: ${formatMoney(paymentPreview.serviceTotal)}</p>
         <p style="margin:8px 0 0 0;"><strong>Total: ${formatMoney(paymentPreview.total)}</strong></p>
         <p style="margin:8px 0 0 0;font-size:11px;color:#555;">${escapeHtml(PREFACTURA_INC_FOOTNOTE)}</p>
       </div>
@@ -2387,16 +2383,8 @@ export default function PosScreen() {
 
               {paymentPreview ? (
                 <div className="mt-3 space-y-1 rounded-md border border-primary/20 bg-white/70 p-2 text-xs text-dark dark:border-dark-3 dark:bg-dark-2 dark:text-white">
-                  <div className="flex items-center justify-between">
-                    <span>Subtotal</span>
-                    <span>{formatMoney(paymentPreview.subtotal)}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Servicio</span>
-                    <span>{formatMoney(paymentPreview.serviceTotal)}</span>
-                  </div>
                   <div className="flex items-center justify-between font-semibold">
-                    <span>Total a cobrar</span>
+                    <span>Total</span>
                     <span>{formatMoney(paymentPreview.total)}</span>
                   </div>
                   <p className="pt-1 text-[10px] leading-snug text-body-color dark:text-dark-6">
@@ -2474,14 +2462,6 @@ export default function PosScreen() {
                   </Table>
                 </div>
                 <div className="mt-2 space-y-0.5 text-xs text-dark dark:text-white">
-                  <div className="flex justify-between">
-                    <span>Subtotal</span>
-                    <span>{formatMoney(paymentPreview.subtotal)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Servicio</span>
-                    <span>{formatMoney(paymentPreview.serviceTotal)}</span>
-                  </div>
                   <div className="flex justify-between font-semibold">
                     <span>Total</span>
                     <span>{formatMoney(paymentPreview.total)}</span>
