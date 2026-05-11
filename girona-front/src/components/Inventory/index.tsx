@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { SearchIcon } from "@/assets/icons";
 
 type InventoryKind = "ingredient" | "material" | "recipe";
@@ -34,12 +35,24 @@ type RecipeItem = {
   yield_quantity: string;
   unit?: string | null;
   created_at: string;
+  /** Categoría del ítem en menú; "Recetas" = solo inventario interno. */
+  menu_category?: string;
+  menu_item_is_active?: boolean;
   ingredients: Array<{
     name: string;
     unit: string | null;
     quantity: string;
   }>;
 };
+
+/** Recetas creadas desde Inventario (categoría Recetas, no venta directa en menú). */
+function isRecipeInventoryCatalog(recipe: RecipeItem): boolean {
+  const cat = (recipe.menu_category ?? "").trim().toLowerCase();
+  if (recipe.menu_category === undefined && !cat) {
+    return true;
+  }
+  return cat === "recetas";
+}
 
 type PurchaseWithholdingOp = "purchase" | "service";
 
@@ -438,6 +451,7 @@ export default function Inventory() {
 
   const [showCreate, setShowCreate] = useState(false);
   const [showRecipeCreate, setShowRecipeCreate] = useState(false);
+  const [recipeListScope, setRecipeListScope] = useState<"inventory" | "menu">("inventory");
   const [showEdit, setShowEdit] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [nameInput, setNameInput] = useState("");
@@ -466,6 +480,12 @@ export default function Inventory() {
   const [purchaseWithholdingOp, setPurchaseWithholdingOp] =
     useState<PurchaseWithholdingOp>("purchase");
   const purchaseSupplierHoldSyncRef = useRef<number | null>(null);
+  const purchaseUrlHandledRef = useRef(false);
+  const pendingSupplierFromUrlRef = useRef<string | null>(null);
+  const [openPurchaseFromUrl, setOpenPurchaseFromUrl] = useState(false);
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const [searchTerm, setSearchTerm] = useState("");
   const [submitStatus, setSubmitStatus] = useState<
     | { kind: "idle" }
@@ -546,6 +566,19 @@ export default function Inventory() {
   }
 
   useEffect(() => {
+    if (tab !== "recipe") {
+      setRecipeListScope("inventory");
+    }
+  }, [tab]);
+
+  useEffect(() => {
+    if (tab === "recipe" && recipeListScope === "menu" && showRecipeCreate) {
+      setShowRecipeCreate(false);
+      setSubmitStatus({ kind: "idle" });
+    }
+  }, [tab, recipeListScope, showRecipeCreate]);
+
+  useEffect(() => {
     if (tab === "recipe") {
       loadRecipes();
     } else {
@@ -568,18 +601,70 @@ export default function Inventory() {
     resetPurchaseForm();
   }, [tab]);
 
+  useEffect(() => {
+    if (searchParams.get("nuevaCompra") !== "1") {
+      purchaseUrlHandledRef.current = false;
+      return;
+    }
+    if (purchaseUrlHandledRef.current) return;
+    purchaseUrlHandledRef.current = true;
+    const inv = searchParams.get("inventario");
+    const nextTab: InventoryKind = inv === "material" ? "material" : "ingredient";
+    setTab(nextTab);
+    const rawPid = searchParams.get("proveedor")?.trim();
+    pendingSupplierFromUrlRef.current =
+      rawPid && /^\d+$/.test(rawPid) ? rawPid : null;
+    setOpenPurchaseFromUrl(true);
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!openPurchaseFromUrl) return;
+    setOpenPurchaseFromUrl(false);
+    const pre = pendingSupplierFromUrlRef.current;
+    pendingSupplierFromUrlRef.current = null;
+
+    setSubmitStatus({ kind: "idle" });
+    setShowEdit(false);
+    setShowRecipeCreate(false);
+    setEditingId(null);
+    resetForm();
+    purchaseSupplierHoldSyncRef.current = null;
+    setPurchaseWithholdingOp("purchase");
+    const defaultUnit = tab === "ingredient" ? "gramos" : "";
+    setPurchaseItems([
+      {
+        mode: "existing",
+        product_id: "",
+        product_name: "",
+        unit: defaultUnit,
+        supplier_id: pre ?? "",
+        quantity: "",
+        total_cost: "",
+        iva_rate: "0.19",
+      },
+    ]);
+    setShowCreate(true);
+
+    router.replace(pathname || "/inventory", { scroll: false });
+  }, [tab, openPurchaseFromUrl, router, pathname]);
+
   const viewTitle =
     tab === "ingredient"
       ? "Inventario de ingredientes"
       : tab === "material"
         ? "Inventario mobiliario"
         : "Inventario de recetas";
-  const viewHint =
-    tab === "ingredient"
-      ? "Ingredientes y productos usados en recetas."
-      : tab === "material"
-        ? "Mobiliario y equipamiento. Al registrar una compra, cada linea queda asociada al producto y al proveedor indicado (mismo criterio que ingredientes)."
-        : "Recetas registradas en el sistema.";
+
+  const viewHint = useMemo(() => {
+    if (tab === "ingredient") return "Ingredientes y productos usados en recetas.";
+    if (tab === "material") {
+      return "Mobiliario y equipamiento. Al registrar una compra, cada linea queda asociada al producto y al proveedor indicado (mismo criterio que ingredientes).";
+    }
+    if (recipeListScope === "inventory") {
+      return "Preparaciones internas del inventario (categoría Recetas). Podés crear nuevas con Agregar receta.";
+    }
+    return "Recetas de ítems del menú (restaurante y bar). Los platos se gestionan en Menú; aquí ajustás rendimiento e ingredientes para costos y movimientos de stock.";
+  }, [tab, recipeListScope]);
 
   const lowStockIds = useMemo(() => {
     return new Set<number>();
@@ -595,11 +680,16 @@ export default function Inventory() {
 
   const filteredRecipes = useMemo(() => {
     const term = normalizeSearchText(searchTerm);
-    if (!term) return recipes;
-    return recipes.filter((recipe) =>
+    let list = recipes.filter((recipe) =>
+      recipeListScope === "inventory"
+        ? isRecipeInventoryCatalog(recipe)
+        : !isRecipeInventoryCatalog(recipe),
+    );
+    if (!term) return list;
+    return list.filter((recipe) =>
       normalizeSearchText(String(recipe.name ?? "")).includes(term),
     );
-  }, [recipes, searchTerm]);
+  }, [recipes, searchTerm, recipeListScope]);
 
   const purchaseSubtotalCop = useMemo(() => {
     let sum = 0;
@@ -1257,23 +1347,25 @@ export default function Inventory() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              if (tab === "recipe") {
-                openRecipeCreate();
-              } else {
-                openCreate();
-              }
-            }}
-            className="rounded-md bg-dark px-4 py-2 text-sm font-medium text-white hover:bg-dark/90 dark:bg-white dark:text-dark dark:hover:bg-white/90"
-          >
-            {tab === "recipe"
-              ? "Agregar receta"
-              : tab === "ingredient"
-                ? "Agregar Ingrediente"
-                : "Agregar compra"}
-          </button>
+          {tab !== "recipe" || recipeListScope === "inventory" ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (tab === "recipe") {
+                  openRecipeCreate();
+                } else {
+                  openCreate();
+                }
+              }}
+              className="rounded-md bg-dark px-4 py-2 text-sm font-medium text-white hover:bg-dark/90 dark:bg-white dark:text-dark dark:hover:bg-white/90"
+            >
+              {tab === "recipe"
+                ? "Agregar receta"
+                : tab === "ingredient"
+                  ? "Agregar Ingrediente"
+                  : "Agregar compra"}
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -1321,6 +1413,33 @@ export default function Inventory() {
           <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-primary" />
         </div>
       </div>
+
+      {tab === "recipe" ? (
+        <div className="mb-4 flex flex-wrap gap-2 border-b border-stroke pb-4 dark:border-dark-3">
+          <button
+            type="button"
+            onClick={() => setRecipeListScope("inventory")}
+            className={
+              recipeListScope === "inventory"
+                ? "rounded-md bg-primary px-3 py-2 text-sm font-medium text-white"
+                : "rounded-md border border-stroke px-3 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
+            }
+          >
+            Recetas de inventario
+          </button>
+          <button
+            type="button"
+            onClick={() => setRecipeListScope("menu")}
+            className={
+              recipeListScope === "menu"
+                ? "rounded-md bg-primary px-3 py-2 text-sm font-medium text-white"
+                : "rounded-md border border-stroke px-3 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
+            }
+          >
+            Menú restaurante y bar
+          </button>
+        </div>
+      ) : null}
 
       {showCreate ? (
         <div className="mb-6 rounded-md border border-stroke bg-gray-1 p-4 dark:border-dark-3 dark:bg-dark-2">
@@ -1622,7 +1741,7 @@ export default function Inventory() {
         </div>
       ) : null}
 
-      {showRecipeCreate && !editingRecipeId ? (
+      {showRecipeCreate && !editingRecipeId && recipeListScope === "inventory" ? (
         <div className="mb-6 rounded-md border border-stroke bg-gray-1 p-4 dark:border-dark-3 dark:bg-dark-2">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
             <div className="flex flex-col gap-1">
@@ -1783,7 +1902,9 @@ export default function Inventory() {
               </div>
             ) : filteredRecipes.length === 0 ? (
               <div className="rounded-xl border border-stroke bg-white p-4 text-sm text-body-color dark:border-dark-3 dark:bg-dark-2 dark:text-dark-6">
-                No hay recetas registradas.
+                {recipeListScope === "inventory"
+                  ? "No hay recetas de inventario registradas."
+                  : "No hay recetas vinculadas al menú. Los ítems se crean en Menú; aparecen aquí cuando tienen receta para costos y stock."}
               </div>
             ) : (
               filteredRecipes.map((recipe) => (
@@ -1796,6 +1917,18 @@ export default function Inventory() {
                       <div className="text-lg font-semibold text-dark dark:text-white">
                         {recipe.name}
                       </div>
+                      {recipeListScope === "menu" && (recipe.menu_category || recipe.menu_item_is_active === false) ? (
+                        <div className="mt-1 text-xs font-medium text-body-color dark:text-dark-6">
+                          {recipe.menu_category ? (
+                            <span className="rounded-md bg-white/80 px-2 py-0.5 dark:bg-dark-3/80">
+                              {recipe.menu_category}
+                            </span>
+                          ) : null}
+                          {recipe.menu_item_is_active === false ? (
+                            <span className={recipe.menu_category ? " ml-2" : ""}>Inactivo en menú</span>
+                          ) : null}
+                        </div>
+                      ) : null}
                       <div className="mt-1 text-sm font-semibold text-secondary">
                         Rinde {formatQtyPlain(recipe.yield_quantity)}
                         {recipe.unit ? ` ${formatUnitAbbr(recipe.unit)}` : ""}

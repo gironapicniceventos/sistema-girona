@@ -760,6 +760,8 @@ def list_recipes(db_session: Session = Depends(db.get_db)):
                 unit=recipe.unit,
                 created_at=recipe.created_at,
                 ingredients=ingredients,
+                menu_category=menu_item.category or "",
+                menu_item_is_active=bool(menu_item.is_active),
             )
         )
     return response
@@ -856,6 +858,8 @@ def create_recipe(payload: schemas.RecipeCreate, db_session: Session = Depends(d
             )
             for item in normalized_ingredients
         ],
+        menu_category=menu_item.category or "",
+        menu_item_is_active=bool(menu_item.is_active),
     )
 
 
@@ -938,6 +942,8 @@ def update_recipe(
             )
             for item in normalized_ingredients
         ],
+        menu_category=menu_item.category or "",
+        menu_item_is_active=bool(menu_item.is_active),
     )
 
 

@@ -288,6 +288,8 @@ class RecipeIngredientOut(BaseModel):
 
 
 class RecipeCatalogOut(BaseModel):
+    """Catálogo de recetas; menu_category en 'Recetas' indica preparación solo de inventario."""
+
     id: int
     menu_item_id: int
     name: str
@@ -295,6 +297,8 @@ class RecipeCatalogOut(BaseModel):
     unit: str | None = None
     created_at: datetime
     ingredients: list[RecipeIngredientOut] = Field(default_factory=list)
+    menu_category: str = ""
+    menu_item_is_active: bool = True
 
     class Config:
         orm_mode = True

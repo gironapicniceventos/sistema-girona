@@ -433,68 +433,65 @@ export default function CashClosing() {
             medio guardado al cerrar el pedido; transferencias aparte. El efectivo físico se arquea abajo.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="flex flex-col text-xs font-medium text-dark-6 dark:text-dark-6">
-            Fecha
-            <input
-              type="date"
-              value={dateInput}
-              onChange={(e) => setDateInput(e.target.value)}
-              className="mt-1 rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
-            />
-          </label>
-          <button
-            type="button"
-            onClick={() => {
-              if (dateInput === dateYmd) {
+        <div className="flex w-full min-w-0 flex-1 flex-wrap items-end gap-x-4 gap-y-2">
+          <div className="mr-auto flex flex-wrap items-center gap-2">
+            <label className="flex flex-col text-xs font-medium text-dark-6 dark:text-dark-6">
+              Fecha
+              <input
+                type="date"
+                value={dateInput}
+                onChange={(e) => setDateInput(e.target.value)}
+                className="mt-1 rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                if (dateInput === dateYmd) {
+                  void loadData();
+                } else {
+                  setDateYmd(dateInput);
+                }
+              }}
+              className="mt-5 rounded-md bg-secondary px-4 py-2 text-sm font-medium text-white hover:bg-secondary/90"
+            >
+              Filtrar
+            </button>
+            <button
+              type="button"
+              onClick={() => {
                 void loadData();
-              } else {
-                setDateYmd(dateInput);
+              }}
+              className="mt-5 rounded-md border border-stroke px-4 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
+            >
+              Actualizar
+            </button>
+          </div>
+          <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+            <button
+              type="button"
+              onClick={() =>
+                buildCashClosingPdf({
+                  dateYmd,
+                  metrics,
+                  draft,
+                  esperadoEfectivo,
+                  diferencia,
+                  sales,
+                  purchasesDay,
+                })
               }
-            }}
-            className="mt-5 rounded-md bg-secondary px-4 py-2 text-sm font-medium text-white hover:bg-secondary/90"
-          >
-            Filtrar
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              void loadData();
-            }}
-            className="mt-5 rounded-md border border-stroke px-4 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
-          >
-            Actualizar
-          </button>
-          <button
-            type="button"
-            onClick={() =>
-              buildCashClosingPdf({
-                dateYmd,
-                metrics,
-                draft,
-                esperadoEfectivo,
-                diferencia,
-                sales,
-                purchasesDay,
-              })
-            }
-            className="mt-5 rounded-md border border-stroke bg-white px-4 py-2 text-sm font-medium text-dark shadow-sm hover:bg-gray-2 dark:border-dark-3 dark:bg-gray-dark dark:text-white dark:hover:bg-dark-2"
-          >
-            Descargar PDF del cierre
-          </button>
-          <button
-            type="button"
-            onClick={handleCloseCashRegister}
-            className="mt-5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90"
-          >
-            Cerrar Caja
-          </button>
-          <Link
-            href="/sales"
-            className="mt-5 rounded-md border border-primary bg-transparent px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10"
-          >
-            Ir a ventas
-          </Link>
+              className="mt-5 rounded-md border border-stroke bg-white px-4 py-2 text-sm font-medium text-dark shadow-sm hover:bg-gray-2 dark:border-dark-3 dark:bg-gray-dark dark:text-white dark:hover:bg-dark-2"
+            >
+              Descargar PDF del cierre
+            </button>
+            <Link
+              href="/sales"
+              className="mt-5 rounded-md border border-primary bg-transparent px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10"
+            >
+              Ir a ventas
+            </Link>
+          </div>
         </div>
       </div>
 
@@ -555,6 +552,22 @@ export default function CashClosing() {
         <p className="mb-4 text-sm text-body">
           Complete solo lo que aplica. Los importes se guardan en este navegador para la fecha elegida.
         </p>
+        <div className="mb-6 max-w-2xl">
+          <label
+            htmlFor="cash-closing-notes"
+            className="mb-1 block text-sm font-medium text-dark dark:text-white"
+          >
+            Notas del cierre
+          </label>
+          <textarea
+            id="cash-closing-notes"
+            value={draft.note}
+            onChange={(e) => updateDraft({ note: e.target.value })}
+            rows={3}
+            className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
+            placeholder="Observaciones, turno, responsable..."
+          />
+        </div>
         <div className="grid max-w-4xl gap-4 sm:grid-cols-2">
           <label className="text-sm text-dark dark:text-white">
             Fondo de apertura
@@ -646,16 +659,15 @@ export default function CashClosing() {
             </p>
           )}
         </div>
-        <label className="mt-4 block text-sm text-dark dark:text-white">
-          Notas del cierre
-          <textarea
-            value={draft.note}
-            onChange={(e) => updateDraft({ note: e.target.value })}
-            rows={3}
-            className="mt-1 w-full max-w-2xl rounded-md border border-stroke bg-white px-3 py-2 text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
-            placeholder="Observaciones, turno, responsable..."
-          />
-        </label>
+        <div className="mt-6 flex flex-wrap items-center justify-end gap-3 border-t border-stroke pt-4 dark:border-dark-3">
+          <button
+            type="button"
+            onClick={handleCloseCashRegister}
+            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90"
+          >
+            Cerrar Caja
+          </button>
+        </div>
       </div>
 
       <div className="rounded-lg border border-stroke bg-white p-6 shadow-1 dark:border-dark-3 dark:bg-gray-dark">

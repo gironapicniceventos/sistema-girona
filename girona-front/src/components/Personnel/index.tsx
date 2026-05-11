@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { SearchIcon } from "@/assets/icons";
@@ -965,13 +966,23 @@ export default function Personnel({ variant = "full" }: PersonnelProps) {
           <h2 className="text-xl font-semibold text-dark dark:text-white">{moduleTitle}</h2>
           <p className="text-sm text-body-color dark:text-dark-6">{moduleSubtitle}</p>
         </div>
-        <button
-          type="button"
-          onClick={openCreate}
-          className="rounded-md bg-dark px-4 py-2 text-sm font-medium text-white hover:bg-dark/90 dark:bg-white dark:text-dark dark:hover:bg-white/90"
-        >
-          Agregar {currentSingular}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={openCreate}
+            className="rounded-md bg-dark px-4 py-2 text-sm font-medium text-white hover:bg-dark/90 dark:bg-white dark:text-dark dark:hover:bg-white/90"
+          >
+            Agregar {currentSingular}
+          </button>
+          {variant === "suppliersOnly" ? (
+            <Link
+              href="/inventory?nuevaCompra=1"
+              className="inline-flex items-center justify-center rounded-md border border-stroke bg-white px-4 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:bg-gray-dark dark:text-white dark:hover:bg-dark-2"
+            >
+              Agregar compra
+            </Link>
+          ) : null}
+        </div>
       </div>
 
       <div className="mt-5 flex flex-wrap gap-2">

@@ -12,7 +12,7 @@ export function Header() {
   const { toggleSidebar, isMobile } = useSidebarContext();
 
   return (
-    <header className="sticky top-0 z-30 flex min-h-[4.25rem] items-center gap-2 border-b border-stroke bg-white px-2 py-3 shadow-1 [padding-left:max(0.5rem,env(safe-area-inset-left))] [padding-right:max(0.5rem,env(safe-area-inset-right))] sm:gap-3 sm:px-4 sm:py-4 md:px-5 2xl:px-10">
+    <header className="sticky top-0 z-30 flex min-h-[4.25rem] items-center gap-2 border-b border-stroke bg-white px-2 py-3 shadow-1 dark:border-gray-800 dark:bg-gray-dark [padding-left:max(0.5rem,env(safe-area-inset-left))] [padding-right:max(0.5rem,env(safe-area-inset-right))] sm:gap-3 sm:px-4 sm:py-4 md:px-5 2xl:px-10">
       <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
         <button
           type="button"
