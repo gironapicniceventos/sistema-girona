@@ -2931,10 +2931,27 @@ export default function PosScreen() {
                         className="rounded-xl border border-stroke bg-gray-1 p-3 text-sm text-dark dark:border-dark-3 dark:bg-dark-2 dark:text-white"
                       >
                         <div className="flex items-start justify-between gap-2">
-                          <div className="font-semibold">
+                          <div className="min-w-0 flex-1 font-semibold">
                             {menuItems.find((m) => m.id === ci.menu_item_id)?.name ?? "Item"}
                           </div>
-                          <div className="text-primary">{formatMoney(ci.unit_price)}</div>
+                          <div className="flex shrink-0 items-start gap-2">
+                            <div className="whitespace-nowrap text-primary">
+                              {formatMoney(ci.unit_price)}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setCart((prev) => {
+                                  const clone = { ...prev };
+                                  delete clone[ci.menu_item_id];
+                                  return clone;
+                                })
+                              }
+                              className="rounded-lg border border-stroke px-2.5 py-1 text-xs font-semibold text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
+                            >
+                              Eliminar
+                            </button>
+                          </div>
                         </div>
                         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                           <label className="flex items-center gap-1">
@@ -3003,21 +3020,6 @@ export default function PosScreen() {
                                     0,
                                   ) * (1 + (ci.tax_rate ?? 0)),
                           )}
-                        </div>
-                        <div className="mt-2 flex justify-end">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setCart((prev) => {
-                                const clone = { ...prev };
-                                delete clone[ci.menu_item_id];
-                                return clone;
-                              })
-                            }
-                            className="rounded-lg border border-stroke px-3 py-1 text-xs font-semibold text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
-                          >
-                            Eliminar
-                          </button>
                         </div>
                         <div className="mt-2">
                           <textarea
