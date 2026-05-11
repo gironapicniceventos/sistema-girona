@@ -2352,23 +2352,7 @@ export default function PosScreen() {
             </div>
 
             <div className="mt-4 rounded-lg border border-primary/25 bg-primary/5 p-3">
-              <label className="inline-flex items-center gap-2 text-sm font-medium text-dark dark:text-white">
-                <input
-                  type="checkbox"
-                  checked={applyConsumptionTax}
-                  onChange={(e) => setApplyConsumptionTax(e.target.checked)}
-                  disabled={issueElectronicInvoice}
-                  className="h-4 w-4 disabled:opacity-60"
-                />
-                Aplicar impuesto al consumo (INC 8%)
-              </label>
-              <p className="mt-1 text-xs text-body-color dark:text-dark-6">
-                {issueElectronicInvoice
-                  ? "Al emitir factura electrónica el INC se aplica automáticamente."
-                  : "Si no lo marcas, el pedido se cierra sin INC."}
-              </p>
-
-              <div className="mt-3">
+              <div>
                 <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
                   Propina (COP)
                 </label>
@@ -2379,6 +2363,24 @@ export default function PosScreen() {
                   className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
                   placeholder="Ej: 5000"
                 />
+              </div>
+
+              <div className="mt-3">
+                <label className="inline-flex items-center gap-2 text-sm font-medium text-dark dark:text-white">
+                  <input
+                    type="checkbox"
+                    checked={applyConsumptionTax}
+                    onChange={(e) => setApplyConsumptionTax(e.target.checked)}
+                    disabled={issueElectronicInvoice}
+                    className="h-4 w-4 disabled:opacity-60"
+                  />
+                  Aplicar impuesto al consumo (INC 8%)
+                </label>
+                <p className="mt-1 text-xs text-body-color dark:text-dark-6">
+                  {issueElectronicInvoice
+                    ? "Al emitir factura electrónica el INC se aplica automáticamente."
+                    : "Si no lo marcas, el pedido se cierra sin INC."}
+                </p>
               </div>
 
               {paymentPreview ? (
