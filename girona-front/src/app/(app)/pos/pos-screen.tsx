@@ -1924,7 +1924,6 @@ export default function PosScreen() {
                 <TableHead className="min-w-[180px] xl:pl-7.5">Nombre del pedido</TableHead>
                 <TableHead className="min-w-[160px]">Creado</TableHead>
                 <TableHead className="min-w-[160px]">Entregado</TableHead>
-                <TableHead className="min-w-[140px]">Tiempo entrega</TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead className="text-right xl:pr-7.5">Acciones</TableHead>
               </TableRow>
@@ -1934,16 +1933,6 @@ export default function PosScreen() {
                 const status = orderStatusMeta(order.status);
                 const createdAt = toColombiaTime(order.opened_at);
                 const deliveredAt = toColombiaTime(order.delivered_at);
-                const deliveryMinutes =
-                  deliveredAt && createdAt?.isValid()
-                    ? Math.max(0, deliveredAt.diff(createdAt, "minute"))
-                    : null;
-                const deliveryDuration =
-                  deliveryMinutes === null
-                    ? ""
-                    : deliveryMinutes < 60
-                      ? `${deliveryMinutes} min`
-                      : `${Math.floor(deliveryMinutes / 60)}h ${deliveryMinutes % 60}m`;
                 const isDelivered = order.status === "delivered";
                 const isPaid = order.status === "closed";
                 const isVoided = order.status === "void";
@@ -1987,9 +1976,6 @@ export default function PosScreen() {
                       <p className="text-dark dark:text-white">
                         {deliveredAt?.isValid() ? deliveredAt.format("DD/MM/YYYY HH:mm") : "—"}
                       </p>
-                    </TableCell>
-                    <TableCell className="min-w-[140px]">
-                      <p className="text-dark dark:text-white">{deliveryDuration || "—"}</p>
                     </TableCell>
                     <TableCell className="min-w-[140px]">
                       <div className={`max-w-fit rounded-full px-3.5 py-1 text-sm font-medium ${status.className}`}>
@@ -2106,7 +2092,6 @@ export default function PosScreen() {
                 <TableHead className="min-w-[180px] xl:pl-7.5">Nombre del pedido</TableHead>
                 <TableHead className="min-w-[160px]">Creado</TableHead>
                 <TableHead className="min-w-[160px]">Finalizado</TableHead>
-                <TableHead className="min-w-[140px]">Tiempo entrega</TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead className="text-right xl:pr-7.5">Acciones</TableHead>
               </TableRow>
@@ -2118,16 +2103,6 @@ export default function PosScreen() {
                 const deliveredAt = toColombiaTime(order.delivered_at);
                 const closedAt = toColombiaTime(order.closed_at ?? null);
                 const finalAt = closedAt?.isValid() ? closedAt : deliveredAt;
-                const deliveryMinutes =
-                  finalAt && createdAt?.isValid()
-                    ? Math.max(0, finalAt.diff(createdAt, "minute"))
-                    : null;
-                const deliveryDuration =
-                  deliveryMinutes === null
-                    ? ""
-                    : deliveryMinutes < 60
-                      ? `${deliveryMinutes} min`
-                      : `${Math.floor(deliveryMinutes / 60)}h ${deliveryMinutes % 60}m`;
                 return (
                   <TableRow key={order.id} className="border-[#eee] dark:border-dark-3">
                     <TableCell className="min-w-[200px] xl:pl-7.5">
@@ -2162,9 +2137,6 @@ export default function PosScreen() {
                       <p className="text-dark dark:text-white">
                         {finalAt?.isValid() ? finalAt.format("DD/MM/YYYY HH:mm") : "—"}
                       </p>
-                    </TableCell>
-                    <TableCell className="min-w-[140px]">
-                      <p className="text-dark dark:text-white">{deliveryDuration || "—"}</p>
                     </TableCell>
                     <TableCell className="min-w-[140px]">
                       <div className={`max-w-fit rounded-full px-3.5 py-1 text-sm font-medium ${status.className}`}>
