@@ -797,7 +797,6 @@ export default function PosScreen() {
     | { kind: "success"; message: string }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
-  const [newOrderWaiterId, setNewOrderWaiterId] = useState("");
   const cartItems = useMemo(() => Object.values(cart), [cart]);
   const resolveWaiterName = useCallback(
     (order: PosOrderOut | null | undefined) => {
@@ -1675,16 +1674,6 @@ export default function PosScreen() {
     }
 
     const isAppending = Boolean(appendingOrderId);
-    if (!isAppending) {
-      const wid = Number(newOrderWaiterId);
-      if (!Number.isFinite(wid) || wid <= 0) {
-        setSubmitStatus({
-          kind: "error",
-          message: "Selecciona el mesero que toma el pedido.",
-        });
-        return;
-      }
-    }
 
     setSubmitStatus({ kind: "loading" });
     try {
@@ -1714,7 +1703,7 @@ export default function PosScreen() {
               : {
                   table_id: selectedTableId,
                   service_total: 0,
-                  waiter_id: Number(newOrderWaiterId),
+                  waiter_id: null,
                   ...payloadBody,
                 },
           ),
@@ -1882,7 +1871,6 @@ export default function PosScreen() {
                         setMode("create");
                         setAppendingOrderId(null);
                         setCart({});
-                        setNewOrderWaiterId("");
                       }}
                       className="rounded-lg bg-primary px-2 py-1 text-xs font-semibold text-white hover:bg-primary/90"
                     >
@@ -2637,7 +2625,6 @@ export default function PosScreen() {
             setAppendingOrderId(null);
             setCart({});
             setNoteInput("");
-            setNewOrderWaiterId("");
           }}
         >
           <div
@@ -2665,7 +2652,6 @@ export default function PosScreen() {
                     setAppendingOrderId(null);
                     setCart({});
                     setNoteInput("");
-                    setNewOrderWaiterId("");
                   }}
                   className="rounded-lg border border-stroke px-3 py-1.5 text-sm font-semibold text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
                 >
@@ -2673,25 +2659,7 @@ export default function PosScreen() {
                 </button>
               </div>
 
-              {!appendingBaseOrder ? (
-                <div className="mt-3 max-w-md">
-                  <label className="block text-xs font-medium text-body-color dark:text-dark-6">
-                    Mesero que toma el pedido
-                    <select
-                      value={newOrderWaiterId}
-                      onChange={(e) => setNewOrderWaiterId(e.target.value)}
-                      className="mt-1 w-full rounded-lg border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
-                    >
-                      <option value="">Seleccionar mesero</option>
-                      {waiterList.map((w) => (
-                        <option key={w.id} value={String(w.id)}>
-                          {w.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-              ) : resolveWaiterName(appendingBaseOrder) ? (
+              {appendingBaseOrder && resolveWaiterName(appendingBaseOrder) ? (
                 <p className="mt-3 text-sm text-dark dark:text-white">
                   <span className="text-body-color dark:text-dark-6">Mesero de la comanda: </span>
                   <span className="font-semibold">{resolveWaiterName(appendingBaseOrder)}</span>
