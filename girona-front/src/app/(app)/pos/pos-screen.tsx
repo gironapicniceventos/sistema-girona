@@ -1732,14 +1732,18 @@ export default function PosScreen() {
       setCart({});
       setNoteInput("");
       if (isAppending) {
-        setAppendingOrderId(updatedOrder.id);
+        setAppendingOrderId(null);
+        setMode("idle");
+        setSelectedTableId(null);
+        setSubmitStatus({ kind: "idle" });
+        setViewOrder(updatedOrder);
       } else {
         setAppendingOrderId(null);
+        setSubmitStatus({
+          kind: "success",
+          message: "Orden creada.",
+        });
       }
-      setSubmitStatus({
-        kind: "success",
-        message: isAppending ? "Items añadidos a la comanda." : "Orden creada.",
-      });
     } catch {
       setSubmitStatus({
         kind: "error",
@@ -3079,29 +3083,11 @@ export default function PosScreen() {
                 {submitStatus.kind === "error" && (
                   <span className="text-sm font-medium text-red">{submitStatus.message}</span>
                 )}
-                {submitStatus.kind === "success" && (
+                {submitStatus.kind === "success" && !appendingBaseOrder ? (
                   <div className="flex w-full flex-wrap items-center gap-2">
                     <span className="text-sm font-medium text-green">{submitStatus.message}</span>
-                    {appendingBaseOrder ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const targetOrder = appendingBaseOrder;
-                          setMode("idle");
-                          setSelectedTableId(null);
-                          setCart({});
-                          setNoteInput("");
-                          if (targetOrder) {
-                            setViewOrder(targetOrder);
-                          }
-                        }}
-                        className="rounded-lg border border-primary/60 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/10"
-                      >
-                        Ver pedido
-                      </button>
-                    ) : null}
                   </div>
-                )}
+                ) : null}
               </div>
             </div>
           </div>
