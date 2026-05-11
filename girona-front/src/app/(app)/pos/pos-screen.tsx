@@ -2327,7 +2327,7 @@ export default function PosScreen() {
                   onChange={(e) => setIssueElectronicInvoice(e.target.checked)}
                   className="h-4 w-4"
                 />
-                Emitir factura electrónica (Factus - pruebas)
+                Emitir
               </label>
               <p className="mt-1 text-xs text-body-color dark:text-dark-6">
                 Requiere cliente con documento. Si falla Factus, el pedido queda pagado y puedes
