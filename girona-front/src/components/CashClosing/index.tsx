@@ -425,16 +425,16 @@ export default function CashClosing() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between lg:gap-6">
+        <div className="min-w-0 lg:max-w-2xl">
           <h2 className="text-xl font-semibold text-dark dark:text-white">Cierre de caja</h2>
           <p className="mt-1 text-sm text-body">
             Referencia con ventas y compras del día (Colombia). Tarjeta crédito y débito se separan según el
             medio guardado al cerrar el pedido; transferencias aparte. El efectivo físico se arquea abajo.
           </p>
         </div>
-        <div className="flex w-full min-w-0 flex-1 flex-wrap items-end gap-x-4 gap-y-2">
-          <div className="mr-auto flex flex-wrap items-center gap-2">
+        <div className="flex w-full shrink-0 flex-col gap-3 sm:w-auto lg:min-w-0 lg:flex-1 lg:flex-row lg:flex-wrap lg:items-end lg:justify-between lg:gap-x-4 lg:gap-y-2">
+          <div className="flex flex-wrap items-end gap-2">
             <label className="flex flex-col text-xs font-medium text-dark-6 dark:text-dark-6">
               Fecha
               <input
@@ -453,7 +453,7 @@ export default function CashClosing() {
                   setDateYmd(dateInput);
                 }
               }}
-              className="mt-5 rounded-md bg-secondary px-4 py-2 text-sm font-medium text-white hover:bg-secondary/90"
+              className="rounded-md bg-secondary px-4 py-2 text-sm font-medium text-white hover:bg-secondary/90"
             >
               Filtrar
             </button>
@@ -462,12 +462,12 @@ export default function CashClosing() {
               onClick={() => {
                 void loadData();
               }}
-              className="mt-5 rounded-md border border-stroke px-4 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
+              className="rounded-md border border-stroke px-4 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
             >
               Actualizar
             </button>
           </div>
-          <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+          <div className="flex flex-wrap items-end gap-2 lg:justify-end">
             <button
               type="button"
               onClick={() =>
@@ -481,13 +481,13 @@ export default function CashClosing() {
                   purchasesDay,
                 })
               }
-              className="mt-5 rounded-md border border-stroke bg-white px-4 py-2 text-sm font-medium text-dark shadow-sm hover:bg-gray-2 dark:border-dark-3 dark:bg-gray-dark dark:text-white dark:hover:bg-dark-2"
+              className="rounded-md border border-stroke bg-white px-4 py-2 text-sm font-medium text-dark shadow-sm hover:bg-gray-2 dark:border-dark-3 dark:bg-gray-dark dark:text-white dark:hover:bg-dark-2"
             >
               Descargar PDF del cierre
             </button>
             <Link
               href="/sales"
-              className="mt-5 rounded-md border border-primary bg-transparent px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10"
+              className="inline-flex rounded-md border border-primary bg-transparent px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10"
             >
               Ir a ventas
             </Link>
