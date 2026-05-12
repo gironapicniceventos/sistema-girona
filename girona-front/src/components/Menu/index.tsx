@@ -482,18 +482,15 @@ export default function Menu({ items }: { items: MenuItem[] }) {
   }, [activeItems]);
 
   const categoryOptions = useMemo(() => {
-    const fromItems = grouped.map(([category]) => category);
-    const fromCustom =
-      tab === "bar" ? customBarCategories : customRestauranteCategories;
-    const merged = new Map<string, string>();
-    for (const c of [...fromItems, ...fromCustom]) {
-      const trimmed = c.trim();
+    const byKey = new Map<string, string>();
+    for (const item of activeItems) {
+      const trimmed = String(item.category ?? "").trim();
       if (!trimmed) continue;
       const key = categoryKey(trimmed);
-      if (!merged.has(key)) merged.set(key, trimmed);
+      if (!byKey.has(key)) byKey.set(key, formatCategory(trimmed));
     }
-    return [...merged.values()].sort((a, b) => a.localeCompare(b));
-  }, [customBarCategories, customRestauranteCategories, grouped, tab]);
+    return [...byKey.values()].sort((a, b) => a.localeCompare(b));
+  }, [activeItems]);
 
   const customCategoryKeySet = useMemo(() => {
     const list = tab === "bar" ? customBarCategories : customRestauranteCategories;
@@ -1445,25 +1442,21 @@ export default function Menu({ items }: { items: MenuItem[] }) {
       {tab === "restaurante" && (
         <div className="mb-6">
           <div className="flex flex-wrap gap-2">
-            {RESTAURANTE_NAV.map(({ label, Icon }) => {
+            {RESTAURANTE_NAV.filter(({ label }) =>
+              activeCategorySet.has(categoryKey(label)),
+            ).map(({ label, Icon }) => {
               const id = categoryToId(label);
-              const available = activeCategorySet.has(categoryKey(label));
               return (
                 <button
                   key={label}
                   type="button"
-                  disabled={!available}
                   onClick={() => {
-                    if (!available) return;
                     const el = document.getElementById(id);
                     if (!el) return;
                     el.scrollIntoView({ behavior: "smooth", block: "start" });
                   }}
                   className={
-                    "inline-flex items-center gap-2 rounded-xl border border-stroke bg-primary/10 px-3 py-2 text-sm font-semibold text-primary transition dark:border-dark-3 dark:bg-white/5 dark:text-white " +
-                    (available
-                      ? "hover:bg-primary hover:text-white dark:hover:bg-primary"
-                      : "cursor-not-allowed opacity-50")
+                    "inline-flex items-center gap-2 rounded-xl border border-stroke bg-primary/10 px-3 py-2 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white dark:border-dark-3 dark:bg-white/5 dark:text-white dark:hover:bg-primary"
                   }
                 >
                   <Icon className="h-5 w-5" aria-hidden="true" />
@@ -1476,24 +1469,18 @@ export default function Menu({ items }: { items: MenuItem[] }) {
               .filter((label) => activeCategorySet.has(categoryKey(label)))
               .map((label) => {
               const id = categoryToId(label);
-              const available = activeCategorySet.has(categoryKey(label));
               const CustomIcon = getCategoryNavIcon(label, "restaurante");
               return (
                 <button
                   key={label}
                   type="button"
-                  disabled={!available}
                   onClick={() => {
-                    if (!available) return;
                     const el = document.getElementById(id);
                     if (!el) return;
                     el.scrollIntoView({ behavior: "smooth", block: "start" });
                   }}
                   className={
-                    "inline-flex items-center gap-2 rounded-xl border border-stroke bg-primary/10 px-3 py-2 text-sm font-semibold text-primary transition dark:border-dark-3 dark:bg-white/5 dark:text-white " +
-                    (available
-                      ? "hover:bg-primary hover:text-white dark:hover:bg-primary"
-                      : "cursor-not-allowed opacity-50")
+                    "inline-flex items-center gap-2 rounded-xl border border-stroke bg-primary/10 px-3 py-2 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white dark:border-dark-3 dark:bg-white/5 dark:text-white dark:hover:bg-primary"
                   }
                 >
                   <CustomIcon className="h-5 w-5" aria-hidden="true" />
@@ -1508,25 +1495,20 @@ export default function Menu({ items }: { items: MenuItem[] }) {
       {tab === "bar" && (
         <div className="mb-6">
           <div className="flex flex-wrap gap-2">
-            {BAR_NAV.map(({ label, Icon }) => {
+            {BAR_NAV.filter(({ label }) => activeCategorySet.has(categoryKey(label))).map(
+              ({ label, Icon }) => {
               const id = categoryToId(label);
-              const available = activeCategorySet.has(categoryKey(label));
               return (
                 <button
                   key={label}
                   type="button"
-                  disabled={!available}
                   onClick={() => {
-                    if (!available) return;
                     const el = document.getElementById(id);
                     if (!el) return;
                     el.scrollIntoView({ behavior: "smooth", block: "start" });
                   }}
                   className={
-                    "inline-flex items-center gap-2 rounded-xl border border-stroke bg-secondary/10 px-3 py-2 text-sm font-semibold text-secondary transition dark:border-dark-3 dark:bg-white/5 dark:text-white " +
-                    (available
-                      ? "hover:bg-secondary hover:text-white dark:hover:bg-secondary"
-                      : "cursor-not-allowed opacity-50")
+                    "inline-flex items-center gap-2 rounded-xl border border-stroke bg-secondary/10 px-3 py-2 text-sm font-semibold text-secondary transition hover:bg-secondary hover:text-white dark:border-dark-3 dark:bg-white/5 dark:text-white dark:hover:bg-secondary"
                   }
                 >
                   <Icon className="h-5 w-5" aria-hidden="true" />
@@ -1539,24 +1521,18 @@ export default function Menu({ items }: { items: MenuItem[] }) {
               .filter((label) => activeCategorySet.has(categoryKey(label)))
               .map((label) => {
               const id = categoryToId(label);
-              const available = activeCategorySet.has(categoryKey(label));
               const CustomIcon = getCategoryNavIcon(label, "bar");
               return (
                 <button
                   key={label}
                   type="button"
-                  disabled={!available}
                   onClick={() => {
-                    if (!available) return;
                     const el = document.getElementById(id);
                     if (!el) return;
                     el.scrollIntoView({ behavior: "smooth", block: "start" });
                   }}
                   className={
-                    "inline-flex items-center gap-2 rounded-xl border border-stroke bg-secondary/10 px-3 py-2 text-sm font-semibold text-secondary transition dark:border-dark-3 dark:bg-white/5 dark:text-white " +
-                    (available
-                      ? "hover:bg-secondary hover:text-white dark:hover:bg-secondary"
-                      : "cursor-not-allowed opacity-50")
+                    "inline-flex items-center gap-2 rounded-xl border border-stroke bg-secondary/10 px-3 py-2 text-sm font-semibold text-secondary transition hover:bg-secondary hover:text-white dark:border-dark-3 dark:bg-white/5 dark:text-white dark:hover:bg-secondary"
                   }
                 >
                   <CustomIcon className="h-5 w-5" aria-hidden="true" />

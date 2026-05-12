@@ -463,6 +463,7 @@ class SaleOut(BaseModel):
     electronic_invoice_email_status: str | None = None
     electronic_invoice_email_address: str | None = None
     electronic_invoice_email_error: str | None = None
+    factus_credit_note_number: str | None = None
     items: list[SaleItemOut]
 
     class Config:
@@ -483,9 +484,19 @@ class ElectronicInvoiceOut(BaseModel):
     error_message: str | None
     created_at: datetime
     updated_at: datetime
+    factus_credit_note_id: int | None = None
+    factus_credit_note_number: str | None = None
 
     class Config:
         orm_mode = True
+
+
+class FactusCreditNoteRequest(BaseModel):
+    """Anular factura electrónica validada vía nota crédito (Factus crear-y-validar)."""
+
+    numbering_range_id: int | None = None
+    observation: str | None = Field(default=None, max_length=250)
+    send_email: bool = False
 
 
 class FactusIssueInvoiceRequest(BaseModel):

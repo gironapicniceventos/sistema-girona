@@ -11,8 +11,11 @@ from .factus_client import (
     FactusSettings,
     FactusTransportError,
     build_bill_payload,
+    build_credit_note_void_invoice_payload,
     create_bill,
+    create_credit_note_validate,
     download_bill_pdf,
+    extract_credit_note_meta,
     list_numbering_ranges,
     send_bill_email,
 )
@@ -46,6 +49,27 @@ def _sale_or_404(db_session: Session, sale_id: int) -> models.Sale:
     if not sale:
         raise HTTPException(status_code=404, detail="Venta no encontrada")
     return sale
+
+
+def _electronic_invoice_out(invoice: models.ElectronicInvoice) -> schemas.ElectronicInvoiceOut:
+    cn_id, cn_num = extract_credit_note_meta(invoice.response_payload)
+    return schemas.ElectronicInvoiceOut(
+        id=invoice.id,
+        sale_id=invoice.sale_id,
+        provider=invoice.provider,
+        environment=invoice.environment,
+        status=invoice.status,
+        reference_code=invoice.reference_code,
+        factus_bill_id=invoice.factus_bill_id,
+        factus_bill_number=invoice.factus_bill_number,
+        cufe=invoice.cufe,
+        qr_url=invoice.qr_url,
+        error_message=invoice.error_message,
+        created_at=invoice.created_at,
+        updated_at=invoice.updated_at,
+        factus_credit_note_id=cn_id,
+        factus_credit_note_number=cn_num,
+    )
 
 
 def _upsert_customer_for_sale(
@@ -169,7 +193,7 @@ def factus_sale_status(sale_id: int, db_session: Session = Depends(db.get_db)):
             status_code=404,
             detail="La venta no tiene factura electronica registrada",
         )
-    return sale.electronic_invoice
+    return _electronic_invoice_out(sale.electronic_invoice)
 
 
 @router.post("/sales/{sale_id}/issue", response_model=schemas.ElectronicInvoiceOut)
@@ -187,7 +211,7 @@ def issue_factus_invoice(
 
     invoice = sale.electronic_invoice
     if invoice and invoice.status == "issued":
-        return invoice
+        return _electronic_invoice_out(invoice)
 
     if invoice is None:
         invoice = models.ElectronicInvoice(
@@ -267,7 +291,7 @@ def issue_factus_invoice(
         db_session.add(invoice)
         db_session.commit()
         db_session.refresh(invoice)
-        return invoice
+        return _electronic_invoice_out(invoice)
     except FactusConfigError as exc:
         invoice.status = "failed"
         invoice.error_message = str(exc)
@@ -353,7 +377,7 @@ def resend_factus_email(
         db_session.add(invoice)
         db_session.commit()
         db_session.refresh(invoice)
-        return invoice
+        return _electronic_invoice_out(invoice)
     except FactusConfigError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FactusTransportError as exc:
@@ -380,5 +404,65 @@ def resend_factus_email(
                     "El envio principal se solicita al emitir la factura (send_email=true)."
                 ),
             ) from exc
+        status_code = exc.status_code if 400 <= exc.status_code < 500 else 502
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+@router.post("/sales/{sale_id}/credit-note", response_model=schemas.ElectronicInvoiceOut)
+def create_factus_credit_note(
+    sale_id: int,
+    payload: schemas.FactusCreditNoteRequest | None = None,
+    db_session: Session = Depends(db.get_db),
+):
+    """
+    Anula una factura electrónica ya validada mediante nota crédito en Factus
+    (POST /v1/credit-notes/validate — concepto 2 anulación, tipo 20 con referencia a factura).
+    """
+    settings = FactusSettings.from_env()
+    sale = _sale_or_404(db_session, sale_id)
+    invoice = sale.electronic_invoice
+    if not invoice:
+        raise HTTPException(status_code=404, detail="La venta no tiene factura electronica registrada")
+    if invoice.status == "voided":
+        raise HTTPException(
+            status_code=409,
+            detail="Esta venta ya tiene nota credito registrada (anulacion).",
+        )
+    if invoice.status != "issued":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Solo se anulan facturas emitidas (issued). Estado actual: {invoice.status}",
+        )
+    if not invoice.factus_bill_id:
+        raise HTTPException(
+            status_code=400,
+            detail="No hay bill_id de Factus; no se puede crear nota credito desde esta venta.",
+        )
+
+    body = payload or schemas.FactusCreditNoteRequest()
+    try:
+        cn_payload = build_credit_note_void_invoice_payload(
+            settings=settings,
+            sale=sale,
+            invoice=invoice,
+            numbering_range_id=body.numbering_range_id,
+            observation=body.observation,
+            send_email=body.send_email,
+        )
+        cn_response = create_credit_note_validate(settings, cn_payload)
+        merged: dict = dict(invoice.response_payload) if isinstance(invoice.response_payload, dict) else {}
+        merged["credit_note"] = cn_response
+        invoice.response_payload = merged
+        invoice.status = "voided"
+        invoice.error_message = None
+        db_session.add(invoice)
+        db_session.commit()
+        db_session.refresh(invoice)
+        return _electronic_invoice_out(invoice)
+    except FactusConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FactusTransportError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except FactusApiError as exc:
         status_code = exc.status_code if 400 <= exc.status_code < 500 else 502
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc

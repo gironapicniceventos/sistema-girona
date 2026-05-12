@@ -110,6 +110,9 @@ class FactusSettings:
     establishment_phone: str | None
     establishment_email: str | None
     establishment_municipality_id: int | None
+    credit_note_numbering_range_id: int | None
+    credit_note_correction_code: int
+    credit_note_customization_id: int
 
     @classmethod
     def from_env(cls) -> "FactusSettings":
@@ -153,6 +156,9 @@ class FactusSettings:
             establishment_phone=(os.getenv("FACTUS_ESTABLISHMENT_PHONE") or "").strip() or None,
             establishment_email=(os.getenv("FACTUS_ESTABLISHMENT_EMAIL") or "").strip() or None,
             establishment_municipality_id=_to_int(os.getenv("FACTUS_ESTABLISHMENT_MUNICIPALITY_ID")),
+            credit_note_numbering_range_id=_to_int(os.getenv("FACTUS_CREDIT_NOTE_NUMBERING_RANGE_ID")),
+            credit_note_correction_code=_to_int(os.getenv("FACTUS_CREDIT_NOTE_CORRECTION_CODE"), 2) or 2,
+            credit_note_customization_id=_to_int(os.getenv("FACTUS_CREDIT_NOTE_CUSTOMIZATION_ID"), 20) or 20,
         )
 
     def ensure_enabled(self) -> None:
@@ -469,6 +475,113 @@ def build_bill_payload(
     if allowance_charges:
         payload["allowance_charges"] = allowance_charges
     return payload
+
+
+def build_credit_note_void_invoice_payload(
+    settings: FactusSettings,
+    sale: models.Sale,
+    invoice: models.ElectronicInvoice,
+    *,
+    numbering_range_id: int | None = None,
+    observation: str | None = None,
+    send_email: bool = False,
+    reference_code: str | None = None,
+) -> dict[str, Any]:
+    """
+    Nota crédito que referencia factura (customization 20) y concepto anulación (2), según Factus API.
+    Ver: https://developers.factus.com.co/v1/notas-credito/crear-y-validar/
+    """
+    if invoice.factus_bill_id is None:
+        raise FactusConfigError("La factura no tiene bill_id en Factus; no se puede emitir nota crédito")
+
+    effective_range = (
+        numbering_range_id
+        or settings.credit_note_numbering_range_id
+        or settings.numbering_range_id
+    )
+    if effective_range is None:
+        raise FactusConfigError(
+            "Indica numbering_range_id en la solicitud o configura "
+            "FACTUS_CREDIT_NOTE_NUMBERING_RANGE_ID o FACTUS_NUMBERING_RANGE_ID "
+            "(rango activo para notas crédito en Factus)."
+        )
+
+    if not reference_code:
+        now = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+        reference_code = f"CN-SALE-{sale.id}-{now}"
+
+    payload: dict[str, Any] = {
+        "numbering_range_id": effective_range,
+        "correction_concept_code": settings.credit_note_correction_code,
+        "customization_id": settings.credit_note_customization_id,
+        "bill_id": int(invoice.factus_bill_id),
+        "reference_code": reference_code,
+        "payment_method_code": settings.payment_method_code,
+        "send_email": bool(send_email),
+        "items": _build_items_payload(settings, sale),
+    }
+    if observation and str(observation).strip():
+        payload["observation"] = str(observation).strip()[:250]
+    invoice_req = invoice.request_payload
+    if (
+        isinstance(invoice_req, dict)
+        and isinstance(invoice_req.get("allowance_charges"), list)
+        and invoice_req["allowance_charges"]
+    ):
+        payload["allowance_charges"] = invoice_req["allowance_charges"]
+    if (
+        settings.establishment_name
+        and settings.establishment_address
+        and settings.establishment_phone
+        and settings.establishment_email
+        and settings.establishment_municipality_id is not None
+    ):
+        payload["establishment"] = {
+            "name": settings.establishment_name,
+            "address": settings.establishment_address,
+            "phone_number": settings.establishment_phone,
+            "email": settings.establishment_email,
+            "municipality_id": settings.establishment_municipality_id,
+        }
+    return payload
+
+
+def extract_credit_note_meta(response_payload: Any) -> tuple[int | None, str | None]:
+    """Lee id y número de nota crédito guardados en response_payload tras crear-y-validar."""
+    if not isinstance(response_payload, dict):
+        return None, None
+    wrapped = response_payload.get("credit_note")
+    if not isinstance(wrapped, dict):
+        return None, None
+    data = wrapped.get("data")
+    if not isinstance(data, dict):
+        return None, None
+    cnote = data.get("credit_note")
+    if not isinstance(cnote, dict):
+        return None, None
+    cn_id: int | None = None
+    raw_id = cnote.get("id")
+    if raw_id is not None:
+        try:
+            cn_id = int(raw_id)
+        except (TypeError, ValueError):
+            cn_id = None
+    cn_num: str | None = None
+    raw_num = cnote.get("number")
+    if raw_num is not None:
+        cn_num = str(raw_num)
+    return cn_id, cn_num
+
+
+def create_credit_note_validate(settings: FactusSettings, payload: dict[str, Any]) -> dict[str, Any]:
+    token = fetch_access_token(settings)
+    response = _http_request_json(
+        "POST",
+        f"{settings.api_base_url}/v1/credit-notes/validate",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+        payload=payload,
+    )
+    return response if isinstance(response, dict) else {"raw": response}
 
 
 def create_bill(settings: FactusSettings, payload: dict[str, Any]) -> dict[str, Any]:

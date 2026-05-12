@@ -56,6 +56,7 @@ type Sale = {
   electronic_invoice_email_status?: string | null;
   electronic_invoice_email_address?: string | null;
   electronic_invoice_email_error?: string | null;
+  factus_credit_note_number?: string | null;
   items: SaleItem[];
 };
 
@@ -297,6 +298,7 @@ export default function Sales() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [sendingEmailSaleId, setSendingEmailSaleId] = useState<number | null>(null);
+  const [creditNoteSaleId, setCreditNoteSaleId] = useState<number | null>(null);
   const [purchases, setPurchases] = useState<PurchaseRecord[]>([]);
   const [purchasesLoading, setPurchasesLoading] = useState(true);
 
@@ -470,6 +472,54 @@ export default function Sales() {
         window.alert(message);
       } finally {
         setSendingEmailSaleId(null);
+      }
+    },
+    [loadSalesData],
+  );
+
+  const handleIssueCreditNote = useCallback(
+    async (sale: Sale) => {
+      const fe = sale.electronic_invoice_number ?? "?";
+      if (
+        !window.confirm(
+          `¿Emitir nota crédito en Factus para anular la factura #${fe}? Esta acción anula la factura ante Factus/DIAN y no se puede deshacer desde la aplicación.`,
+        )
+      ) {
+        return;
+      }
+      const obsRaw = window.prompt("Observación opcional (máx. 250 caracteres)", "");
+      const observation =
+        typeof obsRaw === "string" && obsRaw.trim() ? obsRaw.trim().slice(0, 250) : undefined;
+
+      setCreditNoteSaleId(sale.id);
+      try {
+        const response = await fetch(`/api/factus/sales/${sale.id}/credit-note`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(
+            observation ? { observation, send_email: false } : { send_email: false },
+          ),
+        });
+        const payload = await safeJson(response);
+        if (!response.ok) {
+          throw new Error(
+            (payload as any)?.message ||
+              (payload as any)?.detail ||
+              "No se pudo emitir la nota crédito",
+          );
+        }
+        await loadSalesData();
+        const nc =
+          typeof (payload as any)?.factus_credit_note_number === "string"
+            ? (payload as any).factus_credit_note_number
+            : null;
+        window.alert(nc ? `Nota crédito emitida: #${nc}` : "Nota crédito emitida.");
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "No se pudo emitir la nota crédito";
+        window.alert(message);
+      } finally {
+        setCreditNoteSaleId(null);
       }
     },
     [loadSalesData],
@@ -727,7 +777,48 @@ export default function Sales() {
                       {salePaymentMethodLabel(sale.payment_method ?? undefined)}
                     </TableCell>
                     <TableCell>
-                      {sale.electronic_invoice_status === "issued" ? (
+                      {sale.electronic_invoice_status === "voided" ? (
+                        <div className="space-y-1">
+                          <p className="text-xs font-medium text-warning">
+                            Anulada (nota crédito)
+                            {sale.factus_credit_note_number
+                              ? ` #${sale.factus_credit_note_number}`
+                              : ""}
+                          </p>
+                          <p className="max-w-[220px] text-[11px] text-body">
+                            Factura original
+                            {sale.electronic_invoice_number
+                              ? ` #${sale.electronic_invoice_number}`
+                              : ""}
+                          </p>
+                          {sale.electronic_invoice_cufe ? (
+                            <p
+                              className="max-w-[220px] truncate text-[11px] text-body"
+                              title={sale.electronic_invoice_cufe}
+                            >
+                              CUFE: {sale.electronic_invoice_cufe}
+                            </p>
+                          ) : null}
+                          {sale.electronic_invoice_qr_url ? (
+                            <a
+                              href={sale.electronic_invoice_qr_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-xs font-medium text-primary hover:underline"
+                            >
+                              Ver FE original
+                            </a>
+                          ) : null}
+                          <a
+                            href={`/api/factus/sales/${sale.id}/document`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="block text-xs font-medium text-primary hover:underline"
+                          >
+                            Descargar PDF
+                          </a>
+                        </div>
+                      ) : sale.electronic_invoice_status === "issued" ? (
                         <div className="space-y-1">
                           <p className="text-xs font-medium text-success">
                             Emitida{sale.electronic_invoice_number ? ` #${sale.electronic_invoice_number}` : ""}
@@ -787,6 +878,16 @@ export default function Sales() {
                               {sendingEmailSaleId === sale.id ? "Enviando..." : "Reenviar correo"}
                             </button>
                           )}
+                          <button
+                            type="button"
+                            onClick={() => void handleIssueCreditNote(sale)}
+                            disabled={creditNoteSaleId === sale.id}
+                            className="mt-1 block rounded border border-stroke px-2 py-1 text-[11px] font-medium text-danger hover:bg-gray-2 disabled:opacity-60 dark:border-dark-3 dark:hover:bg-dark-2"
+                          >
+                            {creditNoteSaleId === sale.id
+                              ? "Anulando..."
+                              : "Anular con nota crédito"}
+                          </button>
                         </div>
                       ) : sale.electronic_invoice_status === "failed" ? (
                         <span className="text-xs font-medium text-danger">Fallida</span>

@@ -1739,10 +1739,10 @@ export default function PosScreen() {
         setViewOrder(updatedOrder);
       } else {
         setAppendingOrderId(null);
-        setSubmitStatus({
-          kind: "success",
-          message: "Orden creada.",
-        });
+        setMode("idle");
+        setSelectedTableId(null);
+        setSubmitStatus({ kind: "idle" });
+        openPayOrderFlow(updatedOrder);
       }
     } catch {
       setSubmitStatus({
@@ -2315,21 +2315,21 @@ export default function PosScreen() {
               ) : null}
             </div>
 
-            <div className="mt-4 rounded-lg border border-primary/25 bg-primary/5 p-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
-                  Propina (COP)
-                </label>
-                <input
-                  value={serviceTipInput}
-                  onChange={(e) => setServiceTipInput(e.target.value)}
-                  inputMode="decimal"
-                  className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
-                  placeholder="Ej: 5000"
-                />
-              </div>
+            <div className="mt-4 rounded-lg border border-stroke bg-gray-1 p-3 dark:border-dark-3 dark:bg-white/5">
+              <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
+                Propina (COP)
+              </label>
+              <input
+                value={serviceTipInput}
+                onChange={(e) => setServiceTipInput(e.target.value)}
+                inputMode="decimal"
+                className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
+                placeholder="Ej: 5000"
+              />
+            </div>
 
-              <div className="mt-3">
+            <div className="mt-4 rounded-lg border border-stroke bg-gray-1 p-3 dark:border-dark-3 dark:bg-white/5">
+              <div>
                 <label className="inline-flex items-center gap-2 text-sm font-medium text-dark dark:text-white">
                   <input
                     type="checkbox"
@@ -2348,8 +2348,8 @@ export default function PosScreen() {
               </div>
 
               {paymentPreview ? (
-                <div className="mt-3 space-y-1 rounded-md border border-primary/20 bg-white/70 p-2 text-xs text-dark dark:border-dark-3 dark:bg-dark-2 dark:text-white">
-                  <div className="flex items-center justify-between font-semibold">
+                <div className="mt-3 space-y-1 rounded-md border border-stroke bg-white p-3 text-xs text-dark dark:border-dark-3 dark:bg-dark-2 dark:text-white">
+                  <div className="flex items-center justify-between text-base font-semibold">
                     <span>Total</span>
                     <span>{formatMoney(paymentPreview.total)}</span>
                   </div>
@@ -3083,11 +3083,6 @@ export default function PosScreen() {
                 {submitStatus.kind === "error" && (
                   <span className="text-sm font-medium text-red">{submitStatus.message}</span>
                 )}
-                {submitStatus.kind === "success" && !appendingBaseOrder ? (
-                  <div className="flex w-full flex-wrap items-center gap-2">
-                    <span className="text-sm font-medium text-green">{submitStatus.message}</span>
-                  </div>
-                ) : null}
               </div>
             </div>
           </div>

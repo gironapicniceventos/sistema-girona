@@ -13,7 +13,37 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.orm import relationship
+from typing import Any
+
 from .db import Base
+
+
+def _factus_credit_note_meta_from_payload(response_payload: Any) -> tuple[int | None, str | None]:
+    """Alineado con extract_credit_note_meta en factus_client (evita import circular models↔client)."""
+    if not isinstance(response_payload, dict):
+        return None, None
+    wrapped = response_payload.get("credit_note")
+    if not isinstance(wrapped, dict):
+        return None, None
+    data = wrapped.get("data")
+    if not isinstance(data, dict):
+        return None, None
+    cnote = data.get("credit_note")
+    if not isinstance(cnote, dict):
+        return None, None
+    cn_id: int | None = None
+    raw_id = cnote.get("id")
+    if raw_id is not None:
+        try:
+            cn_id = int(raw_id)
+        except (TypeError, ValueError):
+            cn_id = None
+    cn_num: str | None = None
+    raw_num = cnote.get("number")
+    if raw_num is not None:
+        cn_num = str(raw_num)
+    return cn_id, cn_num
+
 
 class User(Base):
     __tablename__ = "users"
@@ -365,6 +395,14 @@ class Sale(Base):
         return self.electronic_invoice.factus_bill_number
 
     @property
+    def factus_credit_note_number(self) -> str | None:
+        inv = self.electronic_invoice
+        if not inv:
+            return None
+        _, num = _factus_credit_note_meta_from_payload(inv.response_payload)
+        return num
+
+    @property
     def electronic_invoice_cufe(self) -> str | None:
         if not self.electronic_invoice:
             return None
@@ -444,7 +482,7 @@ class ElectronicInvoice(Base):
     )
     provider = Column(String, nullable=False, default="factus")
     environment = Column(String, nullable=False, default="sandbox")
-    status = Column(String, nullable=False, default="pending")  # pending|issued|failed
+    status = Column(String, nullable=False, default="pending")  # pending|issued|failed|voided
     reference_code = Column(String, nullable=True, unique=True, index=True)
     factus_bill_id = Column(Integer, nullable=True)
     factus_bill_number = Column(String, nullable=True, index=True)
