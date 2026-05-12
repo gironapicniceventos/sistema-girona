@@ -239,7 +239,13 @@ function getCategoryNavIcon(label: string, tab: "restaurante" | "bar"): IconType
   return getPosCategoryIcon(label, tab === "bar" ? "bar" : "rest");
 }
 
-export default function Menu({ items }: { items: MenuItem[] }) {
+export default function Menu({
+  items,
+  readOnly = false,
+}: {
+  items: MenuItem[];
+  readOnly?: boolean;
+}) {
   const [tab, setTab] = useState<"restaurante" | "bar">("restaurante");
   const [localItems, setLocalItems] = useState<MenuItem[]>(items);
 
@@ -1020,21 +1026,28 @@ export default function Menu({ items }: { items: MenuItem[] }) {
       </div>
 
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-        <button
-          type="button"
-          onClick={() => {
-            if (showCreate) {
-              setShowCreate(false);
-              cancelEdit();
-            } else {
-              startCreate();
-            }
-          }}
-          className="flex w-full items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 sm:w-auto"
+        {!readOnly ? (
+          <button
+            type="button"
+            onClick={() => {
+              if (showCreate) {
+                setShowCreate(false);
+                cancelEdit();
+              } else {
+                startCreate();
+              }
+            }}
+            className="flex w-full items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 sm:w-auto"
+          >
+            {showCreate ? "Cerrar" : "Agregar categoría / item"}
+          </button>
+        ) : null}
+        <div
+          className={
+            "relative w-full sm:max-w-xs " +
+            (!readOnly ? "sm:ml-auto" : "")
+          }
         >
-          {showCreate ? "Cerrar" : "Agregar categoría / item"}
-        </button>
-        <div className="relative w-full sm:ml-auto sm:max-w-xs">
           <input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -1045,7 +1058,7 @@ export default function Menu({ items }: { items: MenuItem[] }) {
         </div>
       </div>
 
-      {showCreate && (
+      {showCreate && !readOnly && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 opacity-0 animate-[fadeIn_160ms_ease-out_forwards]"
           role="dialog"
@@ -1577,34 +1590,38 @@ export default function Menu({ items }: { items: MenuItem[] }) {
                         <div className="rounded-lg bg-tertiary/20 px-3 py-1 text-sm font-semibold text-dark dark:bg-white/10 dark:text-white">
                           {formatCopPrice(item.price)}
                         </div>
-                        <Tooltip label={`Editar ${item.name}`}>
-                          <button
-                            type="button"
-                            onClick={() => startEdit(item)}
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-stroke bg-white text-dark transition hover:bg-gray-2 dark:border-dark-3 dark:bg-dark-2 dark:text-white dark:hover:bg-white/10"
-                            aria-label={`Editar ${item.name}`}
-                          >
-                            <span className="sr-only">{`Editar ${item.name}`}</span>
-                            <RiEdit2Line className="h-5 w-5" aria-hidden="true" />
-                          </button>
-                        </Tooltip>
-                        <Tooltip label={`Eliminar ${item.name}`}>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteItem(item.id)}
-                            disabled={deletingIds.has(item.id)}
-                            className={
-                              "inline-flex h-9 w-9 items-center justify-center rounded-lg border border-stroke bg-white text-red transition hover:bg-red hover:text-white dark:border-dark-3 dark:bg-dark-2 " +
-                              (deletingIds.has(item.id)
-                                ? "cursor-not-allowed opacity-60"
-                                : "")
-                            }
-                            aria-label={`Eliminar ${item.name}`}
-                          >
-                            <span className="sr-only">{`Eliminar ${item.name}`}</span>
-                            <RiDeleteBinLine className="h-5 w-5" aria-hidden="true" />
-                          </button>
-                        </Tooltip>
+                        {!readOnly ? (
+                          <>
+                            <Tooltip label={`Editar ${item.name}`}>
+                              <button
+                                type="button"
+                                onClick={() => startEdit(item)}
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-stroke bg-white text-dark transition hover:bg-gray-2 dark:border-dark-3 dark:bg-dark-2 dark:text-white dark:hover:bg-white/10"
+                                aria-label={`Editar ${item.name}`}
+                              >
+                                <span className="sr-only">{`Editar ${item.name}`}</span>
+                                <RiEdit2Line className="h-5 w-5" aria-hidden="true" />
+                              </button>
+                            </Tooltip>
+                            <Tooltip label={`Eliminar ${item.name}`}>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteItem(item.id)}
+                                disabled={deletingIds.has(item.id)}
+                                className={
+                                  "inline-flex h-9 w-9 items-center justify-center rounded-lg border border-stroke bg-white text-red transition hover:bg-red hover:text-white dark:border-dark-3 dark:bg-dark-2 " +
+                                  (deletingIds.has(item.id)
+                                    ? "cursor-not-allowed opacity-60"
+                                    : "")
+                                }
+                                aria-label={`Eliminar ${item.name}`}
+                              >
+                                <span className="sr-only">{`Eliminar ${item.name}`}</span>
+                                <RiDeleteBinLine className="h-5 w-5" aria-hidden="true" />
+                              </button>
+                            </Tooltip>
+                          </>
+                        ) : null}
                       </div>
                     </div>
 

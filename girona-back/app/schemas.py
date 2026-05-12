@@ -24,6 +24,7 @@ class UserProfileOut(BaseModel):
     email: EmailStr
     name: str
     profile_photo_url: str
+    role: str = "mesero"
 
 
 class UserProfileUpdate(BaseModel):

@@ -4,7 +4,7 @@ import logging
 from fastapi import FastAPI
 from sqlalchemy.exc import OperationalError
 from sqlalchemy import text
-from . import auth, db, factus, inventory, menu, models, personnel, pos, reservations, sales
+from . import auth, db, factus, inventory, menu, models, personnel, pos, reservations, sales, seed_staff
 
 app = FastAPI()
 
@@ -190,6 +190,20 @@ def _auto_migrate_schema() -> None:
                                 "ADD COLUMN withholding_source_amount NUMERIC(14,4)"
                             )
                         )
+                users_sqlite = conn.execute(
+                    text("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+                ).first()
+                if users_sqlite:
+                    user_cols = {
+                        str(row[1])
+                        for row in conn.execute(text("PRAGMA table_info(users)")).fetchall()
+                    }
+                    if "role" not in user_cols:
+                        conn.execute(
+                            text(
+                                "ALTER TABLE users ADD COLUMN role VARCHAR(32) NOT NULL DEFAULT 'mesero'"
+                            )
+                        )
                 return
             conn.execute(text("ALTER TABLE IF EXISTS inventory_products ALTER COLUMN unit DROP NOT NULL"))
             conn.execute(text("ALTER TABLE IF EXISTS inventory_products DROP COLUMN IF EXISTS reorder_point"))
@@ -272,6 +286,12 @@ def _auto_migrate_schema() -> None:
                 text(
                     "ALTER TABLE IF EXISTS users "
                     "ADD COLUMN IF NOT EXISTS profile_photo_url TEXT"
+                )
+            )
+            conn.execute(
+                text(
+                    "ALTER TABLE IF EXISTS users "
+                    "ADD COLUMN IF NOT EXISTS role VARCHAR(32) NOT NULL DEFAULT 'mesero'"
                 )
             )
             conn.execute(
@@ -388,6 +408,7 @@ def _init_db() -> None:
     try:
         models.Base.metadata.create_all(bind=db.engine)
         _auto_migrate_schema()
+        seed_staff.run_if_enabled()
     except OperationalError as exc:
         database_url = os.getenv("DATABASE_URL", "DATABASE_URL=postgresql://postgres:TU_PASSWORD@localhost:5432/girona_dev")
         logger.error("Database connection failed. Check DATABASE_URL and Postgres auth.")

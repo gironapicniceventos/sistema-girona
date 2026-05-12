@@ -1,17 +1,42 @@
 "use client";
 
 import { Logo } from "@/components/logo";
+import { useSession } from "@/components/Auth/SessionContext";
+import { isPathAllowed } from "@/lib/auth/access";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { NAV_DATA } from "./data";
 import { ArrowLeftIcon, ChevronUp } from "./icons";
 import { MenuItem } from "./menu-item";
 import { useSidebarContext } from "./sidebar-context";
 
+function filterNavSections(role: string): typeof NAV_DATA {
+  return NAV_DATA.map((section) => {
+    const items = section.items
+      .map((item) => {
+        const subItems = item.items ?? [];
+        if (subItems.length > 0) {
+          const filtered = subItems.filter((s) => isPathAllowed(role, s.url));
+          if (filtered.length === 0) return null;
+          return { ...item, items: filtered };
+        }
+        if ("url" in item && item.url) {
+          return isPathAllowed(role, item.url) ? item : null;
+        }
+        return item;
+      })
+      .filter((item) => item != null);
+    return { ...section, items };
+  }).filter((section) => section.items.length > 0) as typeof NAV_DATA;
+}
+
 export function Sidebar() {
   const pathname = usePathname();
+  const { me } = useSession();
+  const role = me?.role ?? "mesero";
+  const navSections = useMemo(() => filterNavSections(role), [role]);
   const { setIsOpen, isOpen, isMobile, toggleSidebar } = useSidebarContext();
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
 
@@ -26,7 +51,7 @@ export function Sidebar() {
 
   useEffect(() => {
     // Keep collapsible open, when it's subpage is active
-    NAV_DATA.some((section) => {
+    navSections.some((section) => {
       return section.items.some((item) => {
         return (item.items ?? []).some((subItem) => {
           if (subItem.url === pathname) {
@@ -40,7 +65,7 @@ export function Sidebar() {
         });
       });
     });
-  }, [pathname]);
+  }, [pathname, navSections]);
 
   return (
     <>
@@ -80,7 +105,7 @@ export function Sidebar() {
 
           {/* Navigation */}
           <div className="custom-scrollbar mt-6 flex-1 overflow-y-auto pr-3 lg:mt-10">
-            {NAV_DATA.map((section) => (
+            {navSections.map((section) => (
               <div key={section.label} className="mb-6">
                 <h2 className="mb-5 text-sm font-medium text-dark-4 dark:text-dark-6">
                   {section.label}

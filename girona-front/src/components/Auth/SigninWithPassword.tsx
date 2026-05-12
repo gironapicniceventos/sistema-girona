@@ -5,10 +5,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import React, { useState } from "react";
 import InputGroup from "../FormElements/InputGroup";
 import { storeAuth } from "@/lib/auth/storage";
+import { getDefaultRouteForRole, isPathAllowed } from "@/lib/auth/access";
+import { useSession } from "@/components/Auth/SessionContext";
 
 export default function SigninWithPassword() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { refresh } = useSession();
 
   const [data, setData] = useState({
     email: process.env.NEXT_PUBLIC_DEMO_USER_MAIL || "",
@@ -56,8 +59,14 @@ export default function SigninWithPassword() {
         false,
       );
 
+      const user = await refresh();
+      const role = user?.role ?? "mesero";
       const next = searchParams.get("next");
-      router.push(next && next.startsWith("/") ? next : "/dashboard");
+      const dest =
+        next && next.startsWith("/") && isPathAllowed(role, next)
+          ? next
+          : getDefaultRouteForRole(role);
+      router.push(dest);
       router.refresh();
     } catch {
       setError("No se pudo conectar con el servidor.");

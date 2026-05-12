@@ -1,3 +1,5 @@
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
@@ -67,7 +69,8 @@ def get_current_user(
             detail="Token inválido",
         )
 
-    db_user = db_session.query(models.User).filter(models.User.email == email.strip()).first()
+    email_norm = email.strip().lower()
+    db_user = db_session.query(models.User).filter(models.User.email == email_norm).first()
     if not db_user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -82,16 +85,24 @@ def get_current_user(
 
 @router.post("/signup", response_model=schemas.UserOut)
 def signup(user: schemas.UserCreate, db: Session = Depends(db.get_db)):
+    allow = os.getenv("ALLOW_PUBLIC_SIGNUP", "").lower() in ("1", "true", "yes")
+    if not allow:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El registro público está deshabilitado",
+        )
 
-    existing = db.query(models.User).filter(models.User.email == user.email).first()
+    email_norm = user.email.strip().lower()
+    existing = db.query(models.User).filter(models.User.email == email_norm).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
     new_user = models.User(
-        email=user.email,
+        email=email_norm,
         hashed_password=security.hash_password(user.password),
-        full_name=_default_name_from_email(user.email),
+        full_name=_default_name_from_email(email_norm),
         profile_photo_url=DEFAULT_PROFILE_PHOTO_URL,
+        role="mesero",
     )
     db.add(new_user)
     db.commit()
@@ -105,12 +116,14 @@ def signup(user: schemas.UserCreate, db: Session = Depends(db.get_db)):
 
 @router.post("/login", response_model=schemas.Token)
 def login(user: schemas.UserCreate, db: Session = Depends(db.get_db)):
-
-    db_user = db.query(models.User).filter(models.User.email == user.email).first()
+    email_norm = user.email.strip().lower()
+    db_user = db.query(models.User).filter(models.User.email == email_norm).first()
     if not db_user or not security.verify_password(user.password, db_user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    token = security.create_access_token({"sub": db_user.email})
+    token = security.create_access_token(
+        {"sub": db_user.email, "role": db_user.role or "mesero"},
+    )
     return {"access_token": token, "token_type": "bearer"}
 
 
@@ -121,6 +134,7 @@ def get_me(current_user: models.User = Depends(get_current_user)):
         "email": current_user.email,
         "name": current_user.full_name or DEFAULT_PROFILE_NAME,
         "profile_photo_url": current_user.profile_photo_url or DEFAULT_PROFILE_PHOTO_URL,
+        "role": current_user.role or "mesero",
     }
 
 
@@ -145,4 +159,5 @@ def update_me(
         "email": current_user.email,
         "name": current_user.full_name or DEFAULT_PROFILE_NAME,
         "profile_photo_url": current_user.profile_photo_url or DEFAULT_PROFILE_PHOTO_URL,
+        "role": current_user.role or "mesero",
     }

@@ -1,5 +1,5 @@
 import Breadcrumb from "@/components/Breadcrumbs/Breadcrumb";
-import Menu from "@/components/Menu";
+import MenuWithRole from "./menu-with-role";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -41,7 +41,7 @@ export default async function MenuPage() {
   return (
     <>
       <Breadcrumb pageName="Menu" />
-      <Menu items={items} />
+      <MenuWithRole items={items} />
     </>
   );
 }
