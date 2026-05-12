@@ -31,6 +31,12 @@ class UserProfileUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     profile_photo_url: str | None = Field(default=None, max_length=8_000_000)
 
+
+class UserPasswordChange(BaseModel):
+    current_password: str = Field(min_length=1, max_length=200)
+    new_password: str = Field(min_length=6, max_length=200)
+
+
 class Token(BaseModel):
     access_token: str
     token_type: str
@@ -46,9 +52,6 @@ class StockMovementType(str, Enum):
     inbound = "in"
     outbound = "out"
     adjust = "adjust"
-
-
-class InventoryProductBase(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     sku: str | None = Field(default=None, max_length=100)
     kind: InventoryProductKind = InventoryProductKind.ingredient

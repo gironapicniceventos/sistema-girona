@@ -1,6 +1,7 @@
 "use client";
 
 import Breadcrumb from "@/components/Breadcrumbs/Breadcrumb";
+import { formatApiErrorMessage } from "@/app/api/personnel/_utils";
 import { readAuth } from "@/lib/auth/storage";
 import Image from "next/image";
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
@@ -21,6 +22,14 @@ export default function Page() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordFields, setPasswordFields] = useState({
+    current: "",
+    next: "",
+    confirm: "",
+  });
   const [data, setData] = useState({
     email: "",
     name: "",
@@ -147,9 +156,61 @@ export default function Page() {
     }
   };
 
+  const changePassword = async () => {
+    const auth = readAuth();
+    const dynamicAuthHeader = auth?.accessToken
+      ? `${auth.tokenType || "Bearer"} ${auth.accessToken}`
+      : null;
+    if (!dynamicAuthHeader) {
+      setPasswordError("No hay sesión activa.");
+      return;
+    }
+
+    setPasswordError(null);
+    setPasswordSuccess(null);
+
+    if (passwordFields.next.length < 6) {
+      setPasswordError("La nueva contraseña debe tener al menos 6 caracteres.");
+      return;
+    }
+    if (passwordFields.next !== passwordFields.confirm) {
+      setPasswordError("La confirmación no coincide con la nueva contraseña.");
+      return;
+    }
+
+    setPasswordSaving(true);
+    try {
+      const response = await fetch("/api/auth/me/password", {
+        method: "POST",
+        headers: {
+          authorization: dynamicAuthHeader,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          currentPassword: passwordFields.current,
+          newPassword: passwordFields.next,
+        }),
+      });
+
+      const payload = (await response.json().catch(() => null)) as unknown;
+      if (!response.ok) {
+        const msg =
+          formatApiErrorMessage(payload) || "No se pudo cambiar la contraseña";
+        throw new Error(msg);
+      }
+
+      setPasswordFields({ current: "", next: "", confirm: "" });
+      setPasswordSuccess("Contraseña actualizada correctamente.");
+    } catch (err) {
+      setPasswordError(err instanceof Error ? err.message : "Error al cambiar contraseña.");
+    } finally {
+      setPasswordSaving(false);
+    }
+  };
+
   return (
     <div className="mx-auto w-full max-w-[970px]">
-      <Breadcrumb pageName="Profile" />
+      <Breadcrumb pageName="Perfil" />
 
       <div className="overflow-hidden rounded-[10px] bg-white shadow-1 dark:bg-gray-dark dark:shadow-card">
         <div className="relative z-20 h-35 md:h-65">
@@ -233,6 +294,68 @@ export default function Page() {
               >
                 {saving ? "Guardando..." : "Guardar perfil"}
               </button>
+            </div>
+
+            <div className="mt-10 border-t border-stroke pt-8 dark:border-dark-3">
+              <h3 className="mb-4 text-base font-semibold text-dark dark:text-white">
+                Cambiar contraseña
+              </h3>
+              {passwordError ? (
+                <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-200">
+                  {passwordError}
+                </div>
+              ) : null}
+              {passwordSuccess ? (
+                <div className="mb-4 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700 dark:border-green-900/40 dark:bg-green-950/30 dark:text-green-200">
+                  {passwordSuccess}
+                </div>
+              ) : null}
+              <div className="grid gap-4">
+                <label className="text-sm font-medium text-dark dark:text-white">
+                  Contraseña actual
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    value={passwordFields.current}
+                    onChange={(e) =>
+                      setPasswordFields((p) => ({ ...p, current: e.target.value }))
+                    }
+                    className="mt-1.5 w-full rounded-lg border border-stroke bg-transparent px-3 py-2 text-dark outline-none focus:border-primary dark:border-dark-3 dark:text-white"
+                  />
+                </label>
+                <label className="text-sm font-medium text-dark dark:text-white">
+                  Nueva contraseña (mín. 6 caracteres)
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    value={passwordFields.next}
+                    onChange={(e) =>
+                      setPasswordFields((p) => ({ ...p, next: e.target.value }))
+                    }
+                    className="mt-1.5 w-full rounded-lg border border-stroke bg-transparent px-3 py-2 text-dark outline-none focus:border-primary dark:border-dark-3 dark:text-white"
+                  />
+                </label>
+                <label className="text-sm font-medium text-dark dark:text-white">
+                  Confirmar nueva contraseña
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    value={passwordFields.confirm}
+                    onChange={(e) =>
+                      setPasswordFields((p) => ({ ...p, confirm: e.target.value }))
+                    }
+                    className="mt-1.5 w-full rounded-lg border border-stroke bg-transparent px-3 py-2 text-dark outline-none focus:border-primary dark:border-dark-3 dark:text-white"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={changePassword}
+                  disabled={passwordSaving || loading}
+                  className="inline-flex w-fit items-center rounded-lg border border-stroke bg-white px-4 py-2 text-sm font-medium text-dark hover:bg-gray-1 disabled:cursor-not-allowed disabled:opacity-60 dark:border-dark-3 dark:bg-dark-2 dark:text-white dark:hover:bg-dark-3"
+                >
+                  {passwordSaving ? "Guardando..." : "Actualizar contraseña"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

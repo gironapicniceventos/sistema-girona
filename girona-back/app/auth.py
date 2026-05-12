@@ -161,3 +161,36 @@ def update_me(
         "profile_photo_url": current_user.profile_photo_url or DEFAULT_PROFILE_PHOTO_URL,
         "role": current_user.role or "mesero",
     }
+
+
+@router.post("/me/password", response_model=schemas.UserProfileOut)
+def change_password(
+    payload: schemas.UserPasswordChange,
+    db_session: Session = Depends(db.get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    if not security.verify_password(
+        payload.current_password,
+        current_user.hashed_password,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La contraseña actual no es correcta",
+        )
+    if payload.new_password == payload.current_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La nueva contraseña debe ser distinta a la actual",
+        )
+    current_user.hashed_password = security.hash_password(payload.new_password)
+    db_session.add(current_user)
+    db_session.commit()
+    db_session.refresh(current_user)
+
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "name": current_user.full_name or DEFAULT_PROFILE_NAME,
+        "profile_photo_url": current_user.profile_photo_url or DEFAULT_PROFILE_PHOTO_URL,
+        "role": current_user.role or "mesero",
+    }
