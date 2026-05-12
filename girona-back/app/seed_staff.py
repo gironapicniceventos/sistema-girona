@@ -12,8 +12,10 @@ from . import db, models, security
 logger = logging.getLogger("uvicorn.error")
 
 # (email, password, nombre visible, rol)
-# Roles: mesero | caja_mesero | admin | full_access
+# Roles: mesero | caja_mesero | admin | full_access (dueños y acceso total)
 STAFF_SEED: list[tuple[str, str, str, str]] = [
+    ("jenny799@hotmail.com", "2u%cirWx6ZM4", "Jenny", "full_access"),
+    ("jefferortizm@hotmail.com", "P9jXKh@UEqC$", "Jeffer Ortiz", "full_access"),
     ("acevedopulido08@gmail.com", "Z#8eEN6X$xuN", "Alejandra Acevedo", "admin"),
     ("haryucatalina@gmail.com", "YQP^#y^$W62m", "Catalina", "mesero"),
     ("elkinvillabona1@icloud.com", "X&eCewH^ED7m", "Elkin Villabona", "mesero"),
