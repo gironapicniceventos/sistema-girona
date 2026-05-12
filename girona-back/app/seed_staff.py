@@ -16,6 +16,7 @@ logger = logging.getLogger("uvicorn.error")
 STAFF_SEED: list[tuple[str, str, str, str]] = [
     ("jenny799@hotmail.com", "2u%cirWx6ZM4", "Jenny", "full_access"),
     ("jefferortizm@hotmail.com", "P9jXKh@UEqC$", "Jeffer Ortiz", "full_access"),
+    ("laurasuarez.girona@gmail.com", "v4Ui8a^Jph%H", "Laura Suárez", "full_access"),
     ("acevedopulido08@gmail.com", "Z#8eEN6X$xuN", "Alejandra Acevedo", "admin"),
     ("haryucatalina@gmail.com", "YQP^#y^$W62m", "Catalina", "mesero"),
     ("elkinvillabona1@icloud.com", "X&eCewH^ED7m", "Elkin Villabona", "mesero"),
