@@ -12,11 +12,12 @@ from . import db, models, security
 logger = logging.getLogger("uvicorn.error")
 
 # (email, password, nombre visible, rol)
-# Roles: mesero | caja_mesero | admin | full_access (dueños y acceso total)
+# Roles: mesero | caja_mesero | admin | gerente | jefe_cocina | full_access (dueños)
 STAFF_SEED: list[tuple[str, str, str, str]] = [
     ("jenny799@hotmail.com", "2u%cirWx6ZM4", "Jenny", "full_access"),
     ("jefferortizm@hotmail.com", "P9jXKh@UEqC$", "Jeffer Ortiz", "full_access"),
     ("laurasuarez.girona@gmail.com", "v4Ui8a^Jph%H", "Laura Suárez", "full_access"),
+    ("rodriguezurieles@gmail.com", "3J&kszESuaxU", "Derwin Rodríguez", "full_access"),
     ("acevedopulido08@gmail.com", "Z#8eEN6X$xuN", "Alejandra Acevedo", "admin"),
     ("haryucatalina@gmail.com", "YQP^#y^$W62m", "Catalina", "mesero"),
     ("elkinvillabona1@icloud.com", "X&eCewH^ED7m", "Elkin Villabona", "mesero"),
@@ -27,8 +28,8 @@ STAFF_SEED: list[tuple[str, str, str, str]] = [
     ("ivansuares69@gmail.com", "QjB5Uk3uy!7K", "Néstor Suárez", "mesero"),
     ("yulieth.martinez.jerez21@gmail.com", "vaTW5nybjkC&", "Yulieth Martínez", "caja_mesero"),
     ("angemoreno1984@gmail.com", "jA3vG^x2i4CJ", "Angélica Moreno", "mesero"),
-    ("jose.villarrela1308@gmail.com", "v3B#dmhsSUN", "José Villarreal", "mesero"),
-    ("chefjuliogonzales@gmail.com", "t8ar#PNM4&Pm", "Julio César González", "mesero"),
+    ("jose.villarrela1308@gmail.com", "v3B#dmhsSUN", "José Villarreal", "jefe_cocina"),
+    ("chefjuliogonzales@gmail.com", "t8ar#PNM4&Pm", "Julio César González", "gerente"),
 ]
 
 

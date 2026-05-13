@@ -54,7 +54,7 @@ class User(Base):
     full_name = Column(String, nullable=True)
     profile_photo_url = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True)
-    # mesero | caja_mesero | admin | full_access
+    # mesero | caja_mesero | admin | gerente | jefe_cocina | full_access
     role = Column(String(32), nullable=False, default="mesero")
 
 

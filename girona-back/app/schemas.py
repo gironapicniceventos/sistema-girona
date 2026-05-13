@@ -3,7 +3,7 @@ from datetime import date, datetime
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 class UserCreate(BaseModel):
     email: EmailStr
@@ -37,6 +37,34 @@ class UserPasswordChange(BaseModel):
     new_password: str = Field(min_length=6, max_length=200)
 
 
+class StaffUserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    email: EmailStr
+    name: str
+    role: str
+    is_active: bool
+
+
+class StaffUserCreate(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=6, max_length=200)
+    full_name: str = Field(min_length=1, max_length=120)
+    role: str = Field(min_length=3, max_length=32)
+
+
+class StaffUserUpdate(BaseModel):
+    full_name: str | None = Field(default=None, min_length=1, max_length=120)
+    email: EmailStr | None = None
+    role: str | None = Field(default=None, min_length=3, max_length=32)
+    is_active: bool | None = None
+
+
+class StaffSetPasswordBody(BaseModel):
+    new_password: str = Field(min_length=6, max_length=200)
+
+
 class Token(BaseModel):
     access_token: str
     token_type: str
@@ -52,6 +80,9 @@ class StockMovementType(str, Enum):
     inbound = "in"
     outbound = "out"
     adjust = "adjust"
+
+
+class InventoryProductBase(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     sku: str | None = Field(default=None, max_length=100)
     kind: InventoryProductKind = InventoryProductKind.ingredient

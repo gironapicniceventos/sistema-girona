@@ -2,7 +2,9 @@ export type AppRole =
   | "mesero"
   | "caja_mesero"
   | "admin"
-  | "full_access";
+  | "full_access"
+  | "gerente"
+  | "jefe_cocina";
 
 export function normalizeAppPath(pathname: string): string {
   let p = pathname.split("?")[0] || "/";
@@ -15,15 +17,28 @@ export function isPathAllowed(role: string | undefined, pathname: string): boole
   const p = normalizeAppPath(pathname);
   if (p.startsWith("/auth")) return true;
 
-  const r = (role ?? "mesero") as AppRole | string;
+  const r = (role ?? "mesero").trim();
+
+  if (p.startsWith("/permissions")) return r === "full_access";
 
   if (r === "full_access") return true;
+
+  if (r === "gerente") return true;
 
   if (r === "admin") {
     if (p.startsWith("/compras/proveedores")) return false;
     if (p.startsWith("/sales/cash-closing")) return true;
     if (p.startsWith("/sales")) return false;
     return true;
+  }
+
+  if (r === "jefe_cocina") {
+    return (
+      p.startsWith("/pos") ||
+      p.startsWith("/menu") ||
+      p.startsWith("/inventory") ||
+      p.startsWith("/profile")
+    );
   }
 
   if (r === "caja_mesero") {
@@ -44,7 +59,9 @@ export function isPathAllowed(role: string | undefined, pathname: string): boole
 }
 
 export function getDefaultRouteForRole(role: string): string {
-  if (role === "mesero" || role === "caja_mesero") return "/pos";
+  const r = role.trim();
+  if (r === "mesero" || r === "caja_mesero") return "/pos";
+  if (r === "jefe_cocina") return "/menu";
   return "/dashboard";
 }
 

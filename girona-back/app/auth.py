@@ -8,6 +8,15 @@ from . import db, models, schemas, security
 router = APIRouter(prefix="/auth")
 bearer_scheme = HTTPBearer(auto_error=False)
 
+VALID_APP_ROLES: set[str] = {
+    "mesero",
+    "caja_mesero",
+    "admin",
+    "full_access",
+    "gerente",
+    "jefe_cocina",
+}
+
 
 DEFAULT_PROFILE_PHOTO_URL = "/backgrounds/default.jpg"
 DEFAULT_PROFILE_NAME = "Usuario"
@@ -82,6 +91,143 @@ def get_current_user(
             detail="Usuario inactivo",
         )
     return _ensure_profile_defaults(db_user, db_session)
+
+
+def require_owner(current_user: models.User = Depends(get_current_user)) -> models.User:
+    role = (current_user.role or "").strip()
+    if role != "full_access":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo cuentas de dueño pueden gestionar permisos",
+        )
+    return current_user
+
+
+def _staff_user_dict(u: models.User) -> dict:
+    return {
+        "id": u.id,
+        "email": u.email,
+        "name": u.full_name or DEFAULT_PROFILE_NAME,
+        "role": u.role or "mesero",
+        "is_active": bool(u.is_active),
+    }
+
+
+@router.get("/staff/users", response_model=list[schemas.StaffUserOut])
+def list_staff_users(
+    db_session: Session = Depends(db.get_db),
+    _: models.User = Depends(require_owner),
+):
+    rows = (
+        db_session.query(models.User)
+        .order_by(models.User.email.asc())
+        .all()
+    )
+    return [_staff_user_dict(u) for u in rows]
+
+
+@router.post("/staff/users", response_model=schemas.StaffUserOut)
+def create_staff_user(
+    payload: schemas.StaffUserCreate,
+    db_session: Session = Depends(db.get_db),
+    _: models.User = Depends(require_owner),
+):
+    role = (payload.role or "").strip()
+    if role not in VALID_APP_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Rol inválido. Use uno de: {', '.join(sorted(VALID_APP_ROLES))}",
+        )
+    email_norm = payload.email.strip().lower()
+    exists = db_session.query(models.User).filter(models.User.email == email_norm).first()
+    if exists:
+        raise HTTPException(status_code=400, detail="Ya existe un usuario con ese correo")
+    user = models.User(
+        email=email_norm,
+        hashed_password=security.hash_password(payload.password),
+        full_name=payload.full_name.strip(),
+        role=role,
+        profile_photo_url=DEFAULT_PROFILE_PHOTO_URL,
+        is_active=True,
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return _staff_user_dict(user)
+
+
+@router.patch("/staff/users/{user_id}", response_model=schemas.StaffUserOut)
+def update_staff_user(
+    user_id: int,
+    payload: schemas.StaffUserUpdate,
+    db_session: Session = Depends(db.get_db),
+    owner: models.User = Depends(require_owner),
+):
+    user = db_session.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if payload.email is not None:
+        email_norm = str(payload.email).strip().lower()
+        clash = (
+            db_session.query(models.User)
+            .filter(models.User.email == email_norm, models.User.id != user_id)
+            .first()
+        )
+        if clash:
+            raise HTTPException(status_code=400, detail="Ya existe otro usuario con ese correo")
+        user.email = email_norm
+    if payload.full_name is not None:
+        user.full_name = payload.full_name.strip()
+    if payload.role is not None:
+        role = payload.role.strip()
+        if role not in VALID_APP_ROLES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Rol inválido. Use uno de: {', '.join(sorted(VALID_APP_ROLES))}",
+            )
+        user.role = role
+    if payload.is_active is not None:
+        user.is_active = bool(payload.is_active)
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return _staff_user_dict(user)
+
+
+@router.delete("/staff/users/{user_id}", response_model=schemas.StaffUserOut)
+def deactivate_staff_user(
+    user_id: int,
+    db_session: Session = Depends(db.get_db),
+    owner: models.User = Depends(require_owner),
+):
+    user = db_session.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if user.id == owner.id:
+        raise HTTPException(status_code=400, detail="No puedes desactivar tu propia cuenta")
+    user.is_active = False
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return _staff_user_dict(user)
+
+
+@router.post("/staff/users/{user_id}/password", response_model=schemas.StaffUserOut)
+def staff_set_password(
+    user_id: int,
+    payload: schemas.StaffSetPasswordBody,
+    db_session: Session = Depends(db.get_db),
+    _: models.User = Depends(require_owner),
+):
+    user = db_session.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    user.hashed_password = security.hash_password(payload.new_password)
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return _staff_user_dict(user)
+
 
 @router.post("/signup", response_model=schemas.UserOut)
 def signup(user: schemas.UserCreate, db: Session = Depends(db.get_db)):

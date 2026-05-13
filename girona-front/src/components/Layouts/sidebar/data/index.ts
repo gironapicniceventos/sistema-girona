@@ -57,6 +57,12 @@ export const NAV_DATA = [
         icon: Icons.Calendar,
         items: [],
       },
+      {
+        title: "Permisos",
+        url: "/permissions",
+        icon: Icons.Authentication,
+        items: [],
+      },
     ],
   },
   {
