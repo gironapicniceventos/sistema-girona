@@ -286,10 +286,20 @@ export default function Menu({
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [inventoryError, setInventoryError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  /** Ordena la categoría elegida en el nav como primera sección (restaurante/bar). */
+  const [priorityCategoryKey, setPriorityCategoryKey] = useState<string | null>(null);
 
   useEffect(() => {
     setLocalItems(items);
   }, [items]);
+
+  useEffect(() => {
+    setPriorityCategoryKey(null);
+  }, [tab]);
+
+  useEffect(() => {
+    if (searchQuery.trim()) setPriorityCategoryKey(null);
+  }, [searchQuery]);
 
   useEffect(() => {
     if (!showCreate) return;
@@ -478,8 +488,31 @@ export default function Menu({
       if (existing) existing.push(item);
       else map.set(key, [item]);
     }
-    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [filteredItems]);
+    const pin = priorityCategoryKey;
+    return [...map.entries()].sort((a, b) => {
+      if (pin) {
+        const aK = categoryKey(a[1][0]!.category);
+        const bK = categoryKey(b[1][0]!.category);
+        const aFirst = aK === pin ? 0 : 1;
+        const bFirst = bK === pin ? 0 : 1;
+        if (aFirst !== bFirst) return aFirst - bFirst;
+      }
+      return a[0].localeCompare(b[0]);
+    });
+  }, [filteredItems, priorityCategoryKey]);
+
+  function handleCategoryNavClick(label: string) {
+    const k = categoryKey(label);
+    setPriorityCategoryKey(k);
+    const match = filteredItems.find((item) => categoryKey(item.category) === k);
+    if (!match) return;
+    const id = categoryToId(formatCategory(match.category));
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+  }
 
   const activeCategorySet = useMemo(() => {
     const set = new Set<string>();
@@ -1458,16 +1491,11 @@ export default function Menu({
             {RESTAURANTE_NAV.filter(({ label }) =>
               activeCategorySet.has(categoryKey(label)),
             ).map(({ label, Icon }) => {
-              const id = categoryToId(label);
               return (
                 <button
                   key={label}
                   type="button"
-                  onClick={() => {
-                    const el = document.getElementById(id);
-                    if (!el) return;
-                    el.scrollIntoView({ behavior: "smooth", block: "start" });
-                  }}
+                  onClick={() => handleCategoryNavClick(label)}
                   className={
                     "inline-flex items-center gap-2 rounded-xl border border-stroke bg-primary/10 px-3 py-2 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white dark:border-dark-3 dark:bg-white/5 dark:text-white dark:hover:bg-primary"
                   }
@@ -1481,17 +1509,12 @@ export default function Menu({
             {customCategoryLabels
               .filter((label) => activeCategorySet.has(categoryKey(label)))
               .map((label) => {
-              const id = categoryToId(label);
               const CustomIcon = getCategoryNavIcon(label, "restaurante");
               return (
                 <button
                   key={label}
                   type="button"
-                  onClick={() => {
-                    const el = document.getElementById(id);
-                    if (!el) return;
-                    el.scrollIntoView({ behavior: "smooth", block: "start" });
-                  }}
+                  onClick={() => handleCategoryNavClick(label)}
                   className={
                     "inline-flex items-center gap-2 rounded-xl border border-stroke bg-primary/10 px-3 py-2 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white dark:border-dark-3 dark:bg-white/5 dark:text-white dark:hover:bg-primary"
                   }
@@ -1510,16 +1533,11 @@ export default function Menu({
           <div className="flex flex-wrap gap-2">
             {BAR_NAV.filter(({ label }) => activeCategorySet.has(categoryKey(label))).map(
               ({ label, Icon }) => {
-              const id = categoryToId(label);
               return (
                 <button
                   key={label}
                   type="button"
-                  onClick={() => {
-                    const el = document.getElementById(id);
-                    if (!el) return;
-                    el.scrollIntoView({ behavior: "smooth", block: "start" });
-                  }}
+                  onClick={() => handleCategoryNavClick(label)}
                   className={
                     "inline-flex items-center gap-2 rounded-xl border border-stroke bg-secondary/10 px-3 py-2 text-sm font-semibold text-secondary transition hover:bg-secondary hover:text-white dark:border-dark-3 dark:bg-white/5 dark:text-white dark:hover:bg-secondary"
                   }
@@ -1533,17 +1551,12 @@ export default function Menu({
             {customCategoryLabels
               .filter((label) => activeCategorySet.has(categoryKey(label)))
               .map((label) => {
-              const id = categoryToId(label);
               const CustomIcon = getCategoryNavIcon(label, "bar");
               return (
                 <button
                   key={label}
                   type="button"
-                  onClick={() => {
-                    const el = document.getElementById(id);
-                    if (!el) return;
-                    el.scrollIntoView({ behavior: "smooth", block: "start" });
-                  }}
+                  onClick={() => handleCategoryNavClick(label)}
                   className={
                     "inline-flex items-center gap-2 rounded-xl border border-stroke bg-secondary/10 px-3 py-2 text-sm font-semibold text-secondary transition hover:bg-secondary hover:text-white dark:border-dark-3 dark:bg-white/5 dark:text-white dark:hover:bg-secondary"
                   }

@@ -1,0 +1,22 @@
+# Proyecto aislado: no forma parte de docker-compose principal (gironastack).
+# Uso: cd tools/factus-nc-lab && docker compose run --rm lab
+# Argumentos extra: docker compose run --rm lab --print-only
+name: factus-nc-lab
+
+services:
+  lab:
+    build: .
+    working_dir: /workspace
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - .:/workspace
+    env_file:
+      # Misma configuración Factus que el backend (sin duplicar secretos en esta carpeta).
+      - path: ../../.env
+        required: false
+      - path: ../../.env.factus
+        required: false
+      - path: .env
+        required: false
+    entrypoint: ["python", "/workspace/run_lab.py"]

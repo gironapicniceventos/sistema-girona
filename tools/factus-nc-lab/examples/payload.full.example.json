@@ -1,0 +1,11 @@
+{
+  "numbering_range_id": 0,
+  "correction_concept_code": 2,
+  "customization_id": 20,
+  "bill_id": 0,
+  "reference_code": "LAB-UNIQUE-REF-001",
+  "payment_method_code": "10",
+  "send_email": false,
+  "observation": "Prueba desde tools/factus-nc-lab",
+  "items": []
+}
