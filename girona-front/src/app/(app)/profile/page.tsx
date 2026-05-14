@@ -35,6 +35,12 @@ export default function Page() {
     name: "",
     profilePhoto: DEFAULT_PROFILE_PHOTO,
   });
+  /** `id` del usuario actual; sirve como numeración interna del perfil. */
+  const [profileUserId, setProfileUserId] = useState<number | null>(null);
+  /** Total de cuentas listables vía staff (solo owners suelen verlo; si no, queda null). */
+  const [profilesRegisteredCount, setProfilesRegisteredCount] = useState<number | null>(
+    null,
+  );
 
   const authHeader = useMemo(() => {
     const auth = readAuth();
@@ -71,12 +77,14 @@ export default function Page() {
           throw new Error(message);
         }
 
+        setProfileUserId(payload.id);
         setData({
           email: payload.email,
           name: payload.name || "",
           profilePhoto: payload.profile_photo_url || DEFAULT_PROFILE_PHOTO,
         });
       } catch (err) {
+        setProfileUserId(null);
         setError(err instanceof Error ? err.message : "Error cargando perfil");
       } finally {
         setLoading(false);
@@ -84,6 +92,30 @@ export default function Page() {
     }
 
     void loadProfile();
+  }, [authHeader]);
+
+  useEffect(() => {
+    async function loadProfilesCount() {
+      if (!authHeader) {
+        setProfilesRegisteredCount(null);
+        return;
+      }
+      try {
+        const response = await fetch("/api/auth/staff/users", {
+          headers: { authorization: authHeader },
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          setProfilesRegisteredCount(null);
+          return;
+        }
+        const list = (await response.json().catch(() => null)) as unknown;
+        setProfilesRegisteredCount(Array.isArray(list) ? list.length : null);
+      } catch {
+        setProfilesRegisteredCount(null);
+      }
+    }
+    void loadProfilesCount();
   }, [authHeader]);
 
   const onNameChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -142,6 +174,7 @@ export default function Page() {
         throw new Error(message);
       }
 
+      setProfileUserId(payload.id);
       setData((prev) => ({
         ...prev,
         email: payload.email,
@@ -211,6 +244,22 @@ export default function Page() {
   return (
     <div className="mx-auto w-full max-w-[970px]">
       <Breadcrumb pageName="Perfil" />
+
+      {!loading && (profileUserId != null || profilesRegisteredCount != null) ? (
+        <div className="mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm text-body">
+          {profileUserId != null ? (
+            <span>
+              Tu perfil n.º <strong className="text-dark dark:text-white">{profileUserId}</strong>
+            </span>
+          ) : null}
+          {profilesRegisteredCount != null ? (
+            <span>
+              Perfiles registrados:{" "}
+              <strong className="text-dark dark:text-white">{profilesRegisteredCount}</strong>
+            </span>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="overflow-hidden rounded-[10px] bg-white shadow-1 dark:bg-gray-dark dark:shadow-card">
         <div className="relative z-20 h-35 md:h-65">
