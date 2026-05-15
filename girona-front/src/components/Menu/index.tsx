@@ -47,6 +47,11 @@ type InventoryProduct = {
   source: "ingredient" | "recipe";
 };
 
+/** Recetas de inventario interno (no platos de menú): solo las marcadas como insumo. */
+function isInsumoPrefixedRecipeName(name: string): boolean {
+  return name.trim().toUpperCase().startsWith("[INSUMO]");
+}
+
 function formatCategory(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return trimmed;
@@ -355,7 +360,8 @@ export default function Menu({
             unit: item?.unit ? String(item.unit) : null,
             source: "recipe" as const,
           }))
-          .filter((item) => Number.isFinite(item.id) && item.name);
+          .filter((item) => Number.isFinite(item.id) && item.name)
+          .filter((item) => isInsumoPrefixedRecipeName(item.name));
 
         const merged = new Map<string, InventoryProduct>();
         for (const item of [...ingredients, ...recipes]) {
