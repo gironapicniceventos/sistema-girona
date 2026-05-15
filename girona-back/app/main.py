@@ -433,7 +433,10 @@ def _init_db() -> None:
             finally:
                 s.close()
     except OperationalError as exc:
-        database_url = os.getenv("DATABASE_URL", "DATABASE_URL=postgresql://postgres:TU_PASSWORD@localhost:5432/girona_dev")
+        database_url = os.getenv(
+            "DATABASE_URL",
+            "(no definida; el backend usa por defecto socket local postgresql://postgres@/girona_dev — define DATABASE_URL o crea girona-back/.env)",
+        )
         logger.error("Database connection failed. Check DATABASE_URL and Postgres auth.")
         logger.error("DATABASE_URL=%s", database_url)
         if database_url.startswith("postgresql:///") or database_url.startswith("postgres:///"):
