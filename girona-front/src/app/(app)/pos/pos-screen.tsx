@@ -23,8 +23,22 @@ dayjs.extend(timezone);
 const COLOMBIA_TZ = "America/Bogota";
 const INC_RATE = 0.08;
 const BUSINESS_NAME = process.env.NEXT_PUBLIC_BUSINESS_NAME ?? "Girona";
+/** Datos opcionales del encabezado tipo rollo térmico (configurar en .env del front). */
+const BUSINESS_NIT = (process.env.NEXT_PUBLIC_BUSINESS_NIT ?? "").trim();
+const BUSINESS_ADDRESS = (process.env.NEXT_PUBLIC_BUSINESS_ADDRESS ?? "").trim();
+const BUSINESS_PHONE = (process.env.NEXT_PUBLIC_BUSINESS_PHONE ?? "").trim();
+const POS_TICKET_WHATSAPP = (process.env.NEXT_PUBLIC_POS_TICKET_WHATSAPP ?? "").trim();
+const POS_TICKET_ACCOUNT_NOTE = (process.env.NEXT_PUBLIC_POS_TICKET_ACCOUNT_NOTE ?? "").trim();
+/** Texto legal régimen tributario (encabezado del ticket). */
+const POS_TAX_REGIME_HEADER =
+  (
+    process.env.NEXT_PUBLIC_POS_TAX_REGIME_HEADER ??
+    "Somos Régimen Simple de Tributación - SIM - No Responsables de IVA - Responsable de Impuesto al Consumo."
+  ).trim();
 const PREFACTURA_INC_FOOTNOTE =
-  "Impuesto al consumo (INC), si aplica, forma parte del total a pagar y no se discrimina en este comprobante.";
+  "Impuesto al consumo (INC), si aplica, se detalla abajo y forma parte del total.";
+const POS_TICKET_INTERNAL_FOOTNOTE =
+  "Documento interno / pre-factura. Si se emitió factura electrónica DIAN, aquella es el título valorado ante la DIAN.";
 const PAYMENT_METHOD_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "efectivo", label: "Efectivo" },
   { value: "datofono", label: "Datáfono" },
@@ -176,6 +190,24 @@ function formatMoney(value: unknown) {
     maximumFractionDigits: 0,
     minimumFractionDigits: 0,
   }).format(num);
+}
+
+/** Importes tipo rollo POS (base por línea, subtotales): 2 decimales, sin símbolo $ en columna. */
+function formatMoneyTicketDetail(value: unknown) {
+  const num = typeof value === "number" ? value : Number.parseFloat(String(value));
+  if (!Number.isFinite(num)) return String(value ?? "");
+  return new Intl.NumberFormat("es-CO", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(num);
+}
+
+function posTicketStationIndex(tableName: string): string {
+  const n = parseTableNumberFromName(tableName);
+  if (n == null) return "—";
+  const sec = sectionForTableNumber(n);
+  const idx = TABLE_SECTION_VALUES.indexOf(sec);
+  return String(idx >= 0 ? idx + 1 : n);
 }
 
 /** Importe de línea sin INC para pre-factura (el INC solo en el total del pie). */
@@ -334,52 +366,98 @@ function buildPosTicketPdf(order: PosOrderOut, tableName: string) {
   const doc = new jsPDF();
   const m = 14;
   const pageW = 196;
-  let y = 18;
+  let y = 16;
   const status = orderStatusMeta(order.status);
   const createdAt = toColombiaTime(order.opened_at);
   const closedAt = toColombiaTime(order.closed_at ?? null);
-
-  doc.setFontSize(15);
-  doc.setFont("helvetica", "bold");
-  doc.text(pdfLatin1Safe(BUSINESS_NAME), m, y);
-  y += 8;
-  doc.setFontSize(11);
-  doc.text("COMPROBANTE POS — TICKET DE VENTA", m, y);
-  y += 6;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  doc.text(`Pedido #${order.id}  |  Mesa: ${pdfLatin1Safe(tableName)}`, m, y);
-  y += 5;
-  doc.text(`Estado: ${pdfLatin1Safe(status.label)}`, m, y);
-  y += 5;
   const when = closedAt?.isValid()
     ? closedAt
     : createdAt?.isValid()
       ? createdAt
-      : null;
-  doc.text(`Fecha: ${when?.isValid() ? when.format("DD/MM/YYYY HH:mm") : "—"}`, m, y);
+      : dayjs().tz(COLOMBIA_TZ);
+
+  const appendWrapped = (text: string, fontSize: number, style: "normal" | "bold" | "italic" = "normal") => {
+    doc.setFontSize(fontSize);
+    doc.setFont("helvetica", style);
+    const lines = doc.splitTextToSize(pdfLatin1Safe(text), pageW - m * 2);
+    for (const ln of lines) {
+      if (y > 280) {
+        doc.addPage();
+        y = 16;
+      }
+      doc.text(ln, m, y);
+      y += fontSize * 0.45 + 1;
+    }
+  };
+
+  doc.setFontSize(14);
+  doc.setFont("helvetica", "bold");
+  doc.text(pdfLatin1Safe(BUSINESS_NAME), m, y);
+  y += 8;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  if (BUSINESS_NIT) {
+    doc.text(pdfLatin1Safe(`NIT ${BUSINESS_NIT}`), m, y);
+    y += 5;
+  }
+  if (BUSINESS_ADDRESS) {
+    const addrLines = doc.splitTextToSize(pdfLatin1Safe(BUSINESS_ADDRESS), pageW - m * 2);
+    for (const ln of addrLines) {
+      doc.text(ln, m, y);
+      y += 4.5;
+    }
+  }
+  if (BUSINESS_PHONE) {
+    doc.text(pdfLatin1Safe(BUSINESS_PHONE), m, y);
+    y += 5;
+  }
+
+  y += 2;
+  appendWrapped(POS_TAX_REGIME_HEADER, 8, "italic");
+  y += 2;
+
+  const waiterLabel = (order.waiter_name ?? "").trim() || "—";
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  doc.text(pdfLatin1Safe(`Mesero: ${waiterLabel}`), m, y);
   y += 5;
+  doc.text(pdfLatin1Safe(`Estacion: ${posTicketStationIndex(tableName)}`), m, y);
+  y += 6;
+
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "bold");
+  doc.text(pdfLatin1Safe("pre - factura"), m, y);
+  y += 6;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text(pdfLatin1Safe(`Mesa: ${pdfLatin1Safe(tableName)}`), m, y);
+  y += 4;
 
   if (order.status === "closed") {
     if (order.electronic_invoice_status === "issued" && order.electronic_invoice_number) {
       doc.setFont("helvetica", "bold");
       doc.text(
-        `Factura electronica DIAN: ${pdfLatin1Safe(String(order.electronic_invoice_number))}`,
+        pdfLatin1Safe(`Factura electronica DIAN: ${String(order.electronic_invoice_number)}`),
         m,
         y,
       );
       doc.setFont("helvetica", "normal");
       y += 5;
     } else if (order.electronic_invoice_status === "failed") {
-      doc.text("Factura electronica: emision fallida (revisar en modulo de ventas).", m, y);
+      doc.text(pdfLatin1Safe("Factura electronica: emision fallida (revisar en modulo de ventas)."), m, y);
       y += 5;
     }
   }
 
+  doc.text(pdfLatin1Safe(`Pedido #${order.id}  |  Estado: ${status.label}`), m, y);
+  y += 4;
+  doc.text(pdfLatin1Safe(`Fecha: ${when.isValid() ? when.format("DD/MM/YYYY HH:mm") : "—"}`), m, y);
+  y += 4;
+
   const payRaw = order.payment_method;
   if (payRaw && String(payRaw).trim()) {
     doc.text(
-      `Medio de pago: ${pdfLatin1Safe(paymentMethodLabel(String(payRaw)))}`,
+      pdfLatin1Safe(`Medio de pago: ${paymentMethodLabel(String(payRaw))}`),
       m,
       y,
     );
@@ -388,10 +466,9 @@ function buildPosTicketPdf(order: PosOrderOut, tableName: string) {
 
   y += 4;
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.text("Producto", m, y);
-  doc.text("Cant.", 128, y);
-  doc.text("Total", pageW, y, { align: "right" });
+  doc.setFontSize(9);
+  doc.text("Descripcion", m, y);
+  doc.text("Valor", pageW, y, { align: "right" });
   y += 2;
   doc.setLineWidth(0.3);
   doc.line(m, y, pageW, y);
@@ -399,10 +476,10 @@ function buildPosTicketPdf(order: PosOrderOut, tableName: string) {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
 
-  const lineTotalOf = (item: PosOrderOut["items"][number]) => Number(item.line_total ?? 0);
-
   for (const it of order.items) {
-    const nameLines = doc.splitTextToSize(pdfLatin1Safe(String(it.name)), 100);
+    const qty = String(it.quantity);
+    const lineLabel = `${qty} ${pdfLatin1Safe(String(it.name))}`;
+    const nameLines = doc.splitTextToSize(lineLabel, pageW - m - 38);
     const blockH = Math.max(nameLines.length * 4.8, 6);
     if (y + blockH > 275) {
       doc.addPage();
@@ -412,39 +489,58 @@ function buildPosTicketPdf(order: PosOrderOut, tableName: string) {
     nameLines.forEach((line: string, i: number) => {
       doc.text(line, m, rowTop + 4 + i * 4.8);
     });
-    doc.text(String(it.quantity), 128, rowTop + 4);
-    doc.text(formatMoney(lineTotalOf(it)), pageW, rowTop + 4, { align: "right" });
+    doc.text(
+      formatMoneyTicketDetail(preFacturaLineDisplayAmount(it)),
+      pageW,
+      rowTop + 4,
+      { align: "right" },
+    );
     y = rowTop + blockH + 2;
   }
 
   y += 4;
-  const addTotalRow = (label: string, value: number | string, bold?: boolean) => {
+  const addTotalRow = (label: string, value: number | string, bold?: boolean, useDetail?: boolean) => {
     if (y > 285) {
       doc.addPage();
       y = 20;
     }
     doc.setFont("helvetica", bold ? "bold" : "normal");
-    doc.text(label, m, y);
-    doc.text(formatMoney(value), pageW, y, { align: "right" });
+    doc.text(pdfLatin1Safe(label), m, y);
+    const fmt = useDetail ? formatMoneyTicketDetail : formatMoney;
+    doc.text(fmt(value), pageW, y, { align: "right" });
     y += 6;
     doc.setFont("helvetica", "normal");
   };
-  addTotalRow("Subtotal", order.subtotal);
-  addTotalRow("IVA / impuesto lineas", order.tax_total);
-  addTotalRow("Descuentos", order.discount_total);
-  addTotalRow("Cortesias", order.courtesy_total);
-  addTotalRow("Servicio", order.service_total);
-  addTotalRow("Utilidad", order.utility_total ?? 0);
-  addTotalRow("TOTAL", order.total, true);
 
-  doc.setFontSize(8);
-  const foot = doc.splitTextToSize(
-    pdfLatin1Safe(
-      "Documento interno POS a nombre de la empresa. Si se emitio factura electronica, esa es el titulo valorado ante la DIAN. " +
-        PREFACTURA_INC_FOOTNOTE,
-    ),
-    pageW - m,
-  );
+  const svc = Number(order.service_total) || 0;
+  const util = Number(order.utility_total) || 0;
+
+  addTotalRow("SUB TOTAL", order.subtotal, false, true);
+  addTotalRow("IMPOCONSUMO 8%", order.tax_total, false, true);
+  addTotalRow("ICUI 20%", util, false, true);
+  if (svc > 0) addTotalRow("Servicio / propina", svc, false, true);
+
+  y += 1;
+  doc.setLineWidth(0.4);
+  doc.line(m, y, pageW, y);
+  y += 6;
+  addTotalRow("TOTAL", order.total, true, false);
+
+  if (POS_TICKET_ACCOUNT_NOTE) {
+    y += 2;
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.text(pdfLatin1Safe(POS_TICKET_ACCOUNT_NOTE), m, y);
+    y += 5;
+  }
+  if (POS_TICKET_WHATSAPP) {
+    doc.setFontSize(8);
+    doc.text(pdfLatin1Safe(`Whatsapp ${POS_TICKET_WHATSAPP}`), m, y);
+    y += 5;
+  }
+
+  doc.setFontSize(7);
+  const foot = doc.splitTextToSize(pdfLatin1Safe(POS_TICKET_INTERNAL_FOOTNOTE), pageW - m);
   y += 2;
   for (const ln of foot) {
     if (y > 285) {
@@ -452,7 +548,7 @@ function buildPosTicketPdf(order: PosOrderOut, tableName: string) {
       y = 20;
     }
     doc.text(ln, m, y);
-    y += 4;
+    y += 3.5;
   }
   return doc;
 }
@@ -461,6 +557,7 @@ type PreFacturaPreview = {
   subtotal: number;
   incTotal: number;
   serviceTotal: number;
+  utilityTotal: number;
   total: number;
 };
 
@@ -473,41 +570,70 @@ function buildPreFacturaPdf(
   const doc = new jsPDF();
   const m = 14;
   const pageW = 196;
-  let y = 18;
+  let y = 16;
 
-  doc.setFontSize(16);
+  doc.setFontSize(14);
   doc.setFont("helvetica", "bold");
-  doc.text(BUSINESS_NAME, m, y);
+  doc.text(pdfLatin1Safe(BUSINESS_NAME), m, y);
   y += 8;
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
-  const noteLines = doc.splitTextToSize(
-    "Pre-factura / comprobante de consumo. No reemplaza la factura electronica; si aplica, se emite via Factus al guardar pago con facturacion activada.",
-    pageW - m,
-  );
-  doc.text(noteLines, m, y);
-  y += noteLines.length * 4.5 + 2;
+  if (BUSINESS_NIT) {
+    doc.text(pdfLatin1Safe(`NIT ${BUSINESS_NIT}`), m, y);
+    y += 5;
+  }
+  if (BUSINESS_ADDRESS) {
+    const addrLines = doc.splitTextToSize(pdfLatin1Safe(BUSINESS_ADDRESS), pageW - m * 2);
+    for (const ln of addrLines) {
+      doc.text(ln, m, y);
+      y += 4.5;
+    }
+  }
+  if (BUSINESS_PHONE) {
+    doc.text(pdfLatin1Safe(BUSINESS_PHONE), m, y);
+    y += 5;
+  }
+  y += 2;
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "italic");
+  const regimeLines = doc.splitTextToSize(pdfLatin1Safe(POS_TAX_REGIME_HEADER), pageW - m * 2);
+  for (const ln of regimeLines) {
+    doc.text(ln, m, y);
+    y += 4;
+  }
+  doc.setFont("helvetica", "normal");
+  y += 2;
+
+  const waiterLabel = (order.waiter_name ?? "").trim() || "—";
+  doc.setFontSize(9);
+  doc.text(pdfLatin1Safe(`Mesero: ${waiterLabel}`), m, y);
+  y += 5;
+  doc.text(pdfLatin1Safe(`Estacion: ${posTicketStationIndex(tableName)}`), m, y);
+  y += 6;
+
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "bold");
+  doc.text(pdfLatin1Safe("pre - factura"), m, y);
+  y += 6;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text(pdfLatin1Safe(`Mesa: ${tableName}`), m, y);
+  y += 5;
 
   const when = dayjs().tz(COLOMBIA_TZ).format("DD/MM/YYYY HH:mm");
-  doc.setFontSize(10);
+  doc.text(pdfLatin1Safe(`Pedido #${order.id}  |  ${when}`), m, y);
+  y += 5;
   doc.text(
-    `Pedido #${order.id}  |  Mesa: ${tableName}  |  ${when}`,
+    pdfLatin1Safe(`Medio de pago (preferencia): ${paymentMethodLabel(paymentMethodValue)}`),
     m,
     y,
   );
-  y += 6;
-  doc.text(
-    `Medio de pago (preferencia): ${paymentMethodLabel(paymentMethodValue)}`,
-    m,
-    y,
-  );
-  y += 10;
+  y += 8;
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.text("Producto", m, y);
-  doc.text("Cant.", 130, y);
-  doc.text("Total", pageW, y, { align: "right" });
+  doc.setFontSize(9);
+  doc.text("Descripcion", m, y);
+  doc.text("Valor", pageW, y, { align: "right" });
   y += 2;
   doc.setLineWidth(0.3);
   doc.line(m, y, pageW, y);
@@ -516,7 +642,9 @@ function buildPreFacturaPdf(
   doc.setFontSize(9);
 
   for (const it of order.items) {
-    const nameLines = doc.splitTextToSize(String(it.name), 100);
+    const qty = String(it.quantity);
+    const lineLabel = `${qty} ${pdfLatin1Safe(String(it.name))}`;
+    const nameLines = doc.splitTextToSize(lineLabel, pageW - m - 38);
     const blockH = Math.max(nameLines.length * 4.8, 6);
     if (y + blockH > 275) {
       doc.addPage();
@@ -526,33 +654,46 @@ function buildPreFacturaPdf(
     nameLines.forEach((line: string, i: number) => {
       doc.text(line, m, rowTop + 4 + i * 4.8);
     });
-    doc.text(String(it.quantity), 130, rowTop + 4);
-    doc.text(formatMoney(preFacturaLineDisplayAmount(it)), pageW, rowTop + 4, { align: "right" });
+    doc.text(
+      formatMoneyTicketDetail(preFacturaLineDisplayAmount(it)),
+      pageW,
+      rowTop + 4,
+      { align: "right" },
+    );
     y = rowTop + blockH + 2;
   }
 
   y += 4;
-  doc.setFontSize(10);
-  const addTotalRow = (label: string, value: number, bold?: boolean) => {
+  const addTotalRow = (label: string, value: number, bold?: boolean, useDetail?: boolean) => {
     if (y > 285) {
       doc.addPage();
       y = 20;
     }
     doc.setFont("helvetica", bold ? "bold" : "normal");
-    doc.text(label, m, y);
-    doc.text(formatMoney(value), pageW, y, { align: "right" });
+    doc.text(pdfLatin1Safe(label), m, y);
+    const fmt = useDetail ? formatMoneyTicketDetail : formatMoney;
+    doc.text(fmt(value), pageW, y, { align: "right" });
     y += 6;
     doc.setFont("helvetica", "normal");
   };
-  addTotalRow("Total", preview.total, true);
-  if (y > 275) {
-    doc.addPage();
-    y = 20;
-  }
+
+  addTotalRow("SUB TOTAL", preview.subtotal, false, true);
+  addTotalRow("IMPOCONSUMO 8%", preview.incTotal, false, true);
+  addTotalRow("ICUI 20%", preview.utilityTotal, false, true);
+  if (preview.serviceTotal > 0)
+    addTotalRow("Servicio / propina", preview.serviceTotal, false, true);
+  y += 1;
+  doc.setLineWidth(0.4);
+  doc.line(m, y, pageW, y);
+  y += 6;
+  addTotalRow("TOTAL", preview.total, true, false);
+
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
+  doc.setFontSize(7);
   const foot = doc.splitTextToSize(
-    pdfLatin1Safe(PREFACTURA_INC_FOOTNOTE),
+    pdfLatin1Safe(
+      `${PREFACTURA_INC_FOOTNOTE} ${POS_TICKET_INTERNAL_FOOTNOTE}`,
+    ),
     pageW - m,
   );
   y += 2;
@@ -562,7 +703,7 @@ function buildPreFacturaPdf(
       y = 20;
     }
     doc.text(ln, m, y);
-    y += 4;
+    y += 3.5;
   }
   return doc;
 }
@@ -854,15 +995,23 @@ export default function PosScreen() {
     const defaultServiceTotal = Math.max(0, Number(paymentOrder.service_total) || 0);
     const serviceTotal =
       serviceTipInput.trim() === "" ? defaultServiceTotal : parseCopAmount(serviceTipInput);
-    const incTotal = applyConsumptionTax ? subtotal * INC_RATE : 0;
-    const totalToCharge = subtotal + incTotal + serviceTotal;
+    const utilityTotal = Math.max(0, Number(paymentOrder.utility_total) || 0);
+    const incApplies = issueElectronicInvoice || applyConsumptionTax;
+    const storedTax = Math.max(0, Number(paymentOrder.tax_total) || 0);
+    const incTotal = incApplies
+      ? storedTax > 0
+        ? storedTax
+        : Math.round(subtotal * INC_RATE * 100) / 100
+      : 0;
+    const totalToCharge = subtotal + incTotal + serviceTotal + utilityTotal;
     return {
       subtotal,
       incTotal,
       serviceTotal,
+      utilityTotal,
       total: totalToCharge,
     };
-  }, [paymentOrder, applyConsumptionTax, serviceTipInput]);
+  }, [paymentOrder, applyConsumptionTax, issueElectronicInvoice, serviceTipInput]);
 
   const activeOrders = orders;
   const visibleTables = useMemo(
@@ -1366,29 +1515,39 @@ export default function PosScreen() {
     const rows = paymentOrder.items
       .map(
         (it) => `<tr>
-          <td style="padding:4px 8px;border:1px solid #ccc;">${escapeHtml(it.name)}</td>
-          <td style="padding:4px 8px;border:1px solid #ccc;text-align:right;">${escapeHtml(String(it.quantity))}</td>
-          <td style="padding:4px 8px;border:1px solid #ccc;text-align:right;">${formatMoney(preFacturaLineDisplayAmount(it))}</td>
+          <td style="padding:4px 8px;border:1px solid #ccc;">${escapeHtml(String(it.quantity))} ${escapeHtml(it.name)}</td>
+          <td style="padding:4px 8px;border:1px solid #ccc;text-align:right;">${formatMoneyTicketDetail(preFacturaLineDisplayAmount(it))}</td>
         </tr>`,
       )
       .join("");
+    const svcRow =
+      paymentPreview.serviceTotal > 0
+        ? `<tr><td style="padding:4px 8px;border:1px solid #ccc;"><strong>Servicio / propina</strong></td><td style="padding:4px 8px;border:1px solid #ccc;text-align:right;"><strong>${formatMoneyTicketDetail(paymentPreview.serviceTotal)}</strong></td></tr>`
+        : "";
     w.document.write(
       `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Pre-factura</title></head>
       <body style="font-family:system-ui,sans-serif;padding:20px;max-width:520px;">
-      <h1 style="font-size:18px;margin:0 0 8px 0;">${escapeHtml(BUSINESS_NAME)}</h1>
-      <p style="margin:0 0 8px 0;font-size:12px;color:#444;">Pre-factura / comprobante de consumo. No reemplaza la factura electrónica; si aplica, se emite vía Factus al guardar pago con facturación activada.</p>
-      <p style="font-size:13px;margin:0 0 4px 0;"><strong>Pedido</strong> #${paymentOrder.id} &nbsp;|&nbsp; <strong>Mesa</strong> ${escapeHtml(tableName)} &nbsp;|&nbsp; ${when}</p>
+      <h1 style="font-size:18px;margin:0 0 6px 0;">${escapeHtml(BUSINESS_NAME)}</h1>
+      ${BUSINESS_NIT ? `<p style="margin:0;font-size:12px;">NIT ${escapeHtml(BUSINESS_NIT)}</p>` : ""}
+      ${BUSINESS_ADDRESS ? `<p style="margin:4px 0 0 0;font-size:12px;">${escapeHtml(BUSINESS_ADDRESS)}</p>` : ""}
+      ${BUSINESS_PHONE ? `<p style="margin:4px 0 0 0;font-size:12px;">${escapeHtml(BUSINESS_PHONE)}</p>` : ""}
+      <p style="margin:8px 0 0 0;font-size:11px;color:#444;font-style:italic;">${escapeHtml(POS_TAX_REGIME_HEADER)}</p>
+      <h2 style="font-size:15px;margin:14px 0 6px 0;">pre - factura</h2>
+      <p style="font-size:13px;margin:0 0 4px 0;"><strong>Mesa</strong> ${escapeHtml(tableName)} &nbsp;|&nbsp; <strong>Pedido</strong> #${paymentOrder.id} &nbsp;|&nbsp; ${when}</p>
       <p style="font-size:13px;margin:0 0 8px 0;"><strong>Medio de pago (preferencia)</strong>: ${escapeHtml(paymentMethodLabel(paymentMethod))}</p>
       <table style="width:100%;border-collapse:collapse;margin-top:4px;">
-        <thead><tr><th style="text-align:left;border:1px solid #ccc;padding:4px 8px;">Item</th>
-        <th style="border:1px solid #ccc;padding:4px 8px;">Cant.</th>
-        <th style="border:1px solid #ccc;padding:4px 8px;">Total</th></tr></thead>
+        <thead><tr><th style="text-align:left;border:1px solid #ccc;padding:4px 8px;">Descripcion</th>
+        <th style="text-align:right;border:1px solid #ccc;padding:4px 8px;">Valor</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
-      <div style="margin-top:12px;font-size:13px;">
-        <p style="margin:8px 0 0 0;"><strong>Total: ${formatMoney(paymentPreview.total)}</strong></p>
-        <p style="margin:8px 0 0 0;font-size:11px;color:#555;">${escapeHtml(PREFACTURA_INC_FOOTNOTE)}</p>
-      </div>
+      <table style="width:100%;border-collapse:collapse;margin-top:10px;font-size:13px;">
+        <tr><td style="padding:4px 0;border-bottom:1px solid #eee;">SUB TOTAL</td><td style="padding:4px 0;text-align:right;border-bottom:1px solid #eee;">${formatMoneyTicketDetail(paymentPreview.subtotal)}</td></tr>
+        <tr><td style="padding:4px 0;border-bottom:1px solid #eee;">IMPOCONSUMO 8%</td><td style="padding:4px 0;text-align:right;border-bottom:1px solid #eee;">${formatMoneyTicketDetail(paymentPreview.incTotal)}</td></tr>
+        <tr><td style="padding:4px 0;border-bottom:1px solid #eee;">ICUI 20%</td><td style="padding:4px 0;text-align:right;border-bottom:1px solid #eee;">${formatMoneyTicketDetail(paymentPreview.utilityTotal)}</td></tr>
+        ${svcRow}
+        <tr><td style="padding:8px 0 0 0;"><strong>TOTAL</strong></td><td style="padding:8px 0 0 0;text-align:right;"><strong>${formatMoney(paymentPreview.total)}</strong></td></tr>
+      </table>
+      <p style="margin:12px 0 0 0;font-size:11px;color:#555;">${escapeHtml(PREFACTURA_INC_FOOTNOTE)} ${escapeHtml(POS_TICKET_INTERNAL_FOOTNOTE)}</p>
       </body></html>`,
     );
     w.document.close();
@@ -2268,8 +2427,26 @@ export default function PosScreen() {
 
               {paymentPreview ? (
                 <div className="mt-3 space-y-1 rounded-md border border-stroke bg-white p-3 text-xs text-dark dark:border-dark-3 dark:bg-dark-2 dark:text-white">
-                  <div className="flex items-center justify-between text-base font-semibold">
-                    <span>Total</span>
+                  <div className="flex justify-between">
+                    <span>SUB TOTAL</span>
+                    <span>{formatMoneyTicketDetail(paymentPreview.subtotal)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>IMPOCONSUMO 8%</span>
+                    <span>{formatMoneyTicketDetail(paymentPreview.incTotal)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>ICUI 20%</span>
+                    <span>{formatMoneyTicketDetail(paymentPreview.utilityTotal)}</span>
+                  </div>
+                  {paymentPreview.serviceTotal > 0 ? (
+                    <div className="flex justify-between">
+                      <span>Servicio / propina</span>
+                      <span>{formatMoneyTicketDetail(paymentPreview.serviceTotal)}</span>
+                    </div>
+                  ) : null}
+                  <div className="flex items-center justify-between border-t border-stroke pt-1 text-sm font-semibold dark:border-dark-3">
+                    <span>TOTAL</span>
                     <span>{formatMoney(paymentPreview.total)}</span>
                   </div>
                   <p className="pt-1 text-[10px] leading-snug text-body-color dark:text-dark-6">
@@ -2346,9 +2523,27 @@ export default function PosScreen() {
                     </TableBody>
                   </Table>
                 </div>
-                <div className="mt-2 space-y-0.5 text-xs text-dark dark:text-white">
-                  <div className="flex justify-between font-semibold">
-                    <span>Total</span>
+                <div className="mt-3 space-y-1 rounded-md border border-stroke bg-white p-3 text-xs text-dark dark:border-dark-3 dark:bg-dark-2 dark:text-white">
+                  <div className="flex justify-between">
+                    <span>SUB TOTAL</span>
+                    <span>{formatMoneyTicketDetail(paymentPreview.subtotal)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>IMPOCONSUMO 8%</span>
+                    <span>{formatMoneyTicketDetail(paymentPreview.incTotal)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>ICUI 20%</span>
+                    <span>{formatMoneyTicketDetail(paymentPreview.utilityTotal)}</span>
+                  </div>
+                  {paymentPreview.serviceTotal > 0 ? (
+                    <div className="flex justify-between">
+                      <span>Servicio / propina</span>
+                      <span>{formatMoneyTicketDetail(paymentPreview.serviceTotal)}</span>
+                    </div>
+                  ) : null}
+                  <div className="flex items-center justify-between border-t border-stroke pt-1 text-sm font-semibold dark:border-dark-3">
+                    <span>TOTAL</span>
                     <span>{formatMoney(paymentPreview.total)}</span>
                   </div>
                   <p className="pt-1 text-[10px] leading-snug text-body-color dark:text-dark-6">
