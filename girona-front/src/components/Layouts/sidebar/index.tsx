@@ -12,6 +12,11 @@ import { ArrowLeftIcon, ChevronUp } from "./icons";
 import { MenuItem } from "./menu-item";
 import { useSidebarContext } from "./sidebar-context";
 
+function effectiveNavUrl(role: string, url: string): string {
+  if (role === "caja_mesero" && url === "/sales") return "/sales/historial";
+  return url;
+}
+
 function filterNavSections(role: string): typeof NAV_DATA {
   return NAV_DATA.map((section) => {
     const items = section.items
@@ -23,7 +28,8 @@ function filterNavSections(role: string): typeof NAV_DATA {
           return { ...item, items: filtered };
         }
         if ("url" in item && item.url) {
-          return isPathAllowed(role, item.url) ? item : null;
+          const resolvedUrl = effectiveNavUrl(role, item.url);
+          return isPathAllowed(role, resolvedUrl) ? { ...item, url: resolvedUrl } : null;
         }
         return item;
       })

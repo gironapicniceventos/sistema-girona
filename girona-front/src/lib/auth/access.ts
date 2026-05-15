@@ -47,6 +47,7 @@ export function isPathAllowed(role: string | undefined, pathname: string): boole
       p.startsWith("/menu") ||
       p.startsWith("/personnel") ||
       p.startsWith("/sales/cash-closing") ||
+      p.startsWith("/sales/historial") ||
       p.startsWith("/profile")
     );
   }

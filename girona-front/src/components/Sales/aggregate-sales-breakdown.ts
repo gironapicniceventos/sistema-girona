@@ -9,7 +9,7 @@ const COLOMBIA_TZ = "America/Bogota";
 
 const DATOFONO_CODES = new Set(["datofono", "tarjeta", "tarjeta_credito", "tarjeta_debito"]);
 
-export type TimeFilter = "all" | "week" | "month" | "quarter" | "year";
+export type TimeFilter = "all" | "week" | "month" | "quarter" | "year" | "custom";
 
 export type SaleRowLike = {
   total: unknown;
@@ -94,7 +94,7 @@ export function aggregateSalesBreakdown(sales: SaleRowLike[]): SalesBreakdownAgg
   };
 }
 
-const PERIOD_DAYS: Record<TimeFilter, number | null> = {
+const PERIOD_DAYS: Record<Exclude<TimeFilter, "custom">, number | null> = {
   all: null,
   week: 7,
   month: 30,
@@ -105,8 +105,15 @@ const PERIOD_DAYS: Record<TimeFilter, number | null> = {
 export function filterPurchasesByTimeFilter<T extends { created_at: string }>(
   purchases: T[],
   period: TimeFilter,
+  customRange?: { from: string; to: string } | null,
 ): T[] {
-  const days = PERIOD_DAYS[period];
+  if (period === "custom" && customRange?.from?.trim() && customRange?.to?.trim()) {
+    const r0 = dayjs.tz(`${customRange.from.trim()} 00:00:00`, COLOMBIA_TZ);
+    const r1 = dayjs.tz(`${customRange.to.trim()} 00:00:00`, COLOMBIA_TZ);
+    if (!r0.isValid() || !r1.isValid()) return purchases;
+    return filterPurchasesByYmdRange(purchases, r0, r1);
+  }
+  const days = period === "custom" ? null : PERIOD_DAYS[period];
   if (days == null) return purchases;
   const cutoff = dayjs().tz(COLOMBIA_TZ).subtract(days, "day");
   return purchases.filter((p) => {

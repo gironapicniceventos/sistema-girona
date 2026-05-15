@@ -732,9 +732,8 @@ export default function PosScreen() {
   const sessionWaiterId = me?.waiter_id ?? null;
   const sessionWaiterDisplay =
     (me?.waiter_name ?? "").trim() || (me?.name ?? "").trim() || null;
-  const autoWaiterRole =
-    me != null &&
-    ["mesero", "caja_mesero"].includes((me.role ?? "mesero").trim().toLowerCase());
+  /** Solo meseros con ficha vinculada omiten la selección; caja/caja_mesero y demás eligen en el modal. */
+  const autoWaiterRole = me != null && (me.role ?? "").trim().toLowerCase() === "mesero";
   const useAutoWaiter = autoWaiterRole && sessionWaiterId != null;
 
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
@@ -922,6 +921,18 @@ export default function PosScreen() {
     setViewOrder(null);
     if (order.status === "delivered") {
       openPaymentModal(order);
+      return;
+    }
+    if (useAutoWaiter && sessionWaiterId != null) {
+      const waiterIdForDeliver = order.waiter_id == null ? sessionWaiterId : null;
+      void (async () => {
+        const updated = await handleMarkOrderDelivered(order.id, waiterIdForDeliver);
+        if (updated) {
+          openPaymentModal(updated);
+        } else {
+          window.alert("No se pudo marcar el pedido como entregado. Intenta de nuevo o revisa la conexión.");
+        }
+      })();
       return;
     }
     openWaiterModal(order);
@@ -1225,7 +1236,7 @@ export default function PosScreen() {
     setWaiterOrder(order);
     setWaiterModalOpen(true);
     resetWaiterForm();
-    if (order.waiter_id == null && !useAutoWaiter) {
+    if (!useAutoWaiter && order.waiter_id == null) {
       void loadWaiters();
     }
   }
@@ -1276,13 +1287,6 @@ export default function PosScreen() {
     if (!hasWaiterOnOrder) {
       if (useAutoWaiter && sessionWaiterId != null) {
         waiterId = sessionWaiterId;
-      } else if (autoWaiterRole && sessionWaiterId == null) {
-        setWaiterStatus({
-          kind: "error",
-          message:
-            "Tu usuario no esta vinculado a una ficha de mesero. En Personal → Meseros, vinculá tu usuario o usa el mismo nombre que en tu perfil.",
-        });
-        return;
       } else {
         const parsedId = Number(selectedWaiterId);
         if (!Number.isFinite(parsedId) || parsedId <= 0) {
@@ -1699,7 +1703,7 @@ export default function PosScreen() {
               : {
                   table_id: selectedTableId,
                   service_total: 0,
-                  waiter_id: useAutoWaiter && sessionWaiterId != null ? sessionWaiterId : null,
+                  waiter_id: useAutoWaiter ? sessionWaiterId : null,
                   ...payloadBody,
                 },
           ),
@@ -1995,11 +1999,7 @@ export default function PosScreen() {
                             onClick={() => {
                               if (isVoided) return;
                               if (isPaid) return;
-                              if (isDelivered) {
-                                openPaymentModal(order);
-                              } else {
-                                openWaiterModal(order);
-                              }
+                              openPayOrderFlow(order);
                             }}
                             disabled={isVoided || isPaid}
                             className={

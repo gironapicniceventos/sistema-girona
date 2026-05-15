@@ -7,11 +7,13 @@ import {
   aggregateSalesBreakdown,
   filterPurchasesByTimeFilter,
   sumPurchaseTotalCost,
+  type TimeFilter,
 } from "@/components/Sales/aggregate-sales-breakdown";
 import SalesBreakdownPanel from "@/components/Sales/sales-breakdown-panel";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TableScroll } from "@/components/ui/scroll-table";
 import Link from "next/link";
+import { HiChevronUp, HiOutlineEyeOff } from "react-icons/hi";
 import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
@@ -103,15 +105,42 @@ const SALES_BY_PRODUCT_PAGE_SIZE = 8;
 const SALES_BY_CATEGORY_PAGE_SIZE = 8;
 const SALES_BY_WAITER_PAGE_SIZE = 8;
 const SALES_BY_TABLE_PAGE_SIZE = 8;
-type TimeFilter = "all" | "week" | "month" | "quarter" | "year";
 
-const TIME_FILTER_OPTIONS: Array<{ value: TimeFilter; label: string }> = [
+type SummaryTimeFilter = Exclude<TimeFilter, "custom">;
+
+const TIME_FILTER_OPTIONS_SUMMARY: Array<{ value: SummaryTimeFilter; label: string }> = [
   { value: "all", label: "Mostrar todo" },
   { value: "week", label: "Semana" },
   { value: "month", label: "1 mes" },
   { value: "quarter", label: "3 meses" },
   { value: "year", label: "Año" },
 ];
+
+const TIME_FILTER_OPTIONS_HISTORY: Array<{ value: TimeFilter; label: string }> = [
+  ...TIME_FILTER_OPTIONS_SUMMARY,
+  { value: "custom", label: "Rango personalizado (días)" },
+];
+
+const HIDDEN_SALE_IDS_KEY = "girona.salesHistory.hiddenSaleIds";
+
+function loadHiddenSaleIdsFromStorage(): Set<number> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = localStorage.getItem(HIDDEN_SALE_IDS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(
+      parsed.filter((x): x is number => typeof x === "number" && Number.isFinite(x)),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+function persistHiddenSaleIds(ids: Set<number>) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(HIDDEN_SALE_IDS_KEY, JSON.stringify([...ids]));
+}
 
 const PAYMENT_METHOD_LABEL: Record<string, string> = {
   efectivo: "Efectivo",
@@ -162,11 +191,11 @@ function formatCount(value: unknown) {
   }).format(num);
 }
 
-function formatDate(value: string) {
+function formatSaleDate(value: string) {
   const withOffset = /([zZ]|[+-]\d{2}:?\d{2})$/.test(value);
   const parsed = withOffset ? dayjs(value) : dayjs.tz(value, COLOMBIA_TZ);
   if (!parsed.isValid()) return value;
-  return parsed.tz(COLOMBIA_TZ).format("DD/MM/YYYY HH:mm");
+  return parsed.tz(COLOMBIA_TZ).format("DD/MM/YYYY");
 }
 
 function formatMonthLabel(year: unknown, month: unknown) {
@@ -248,22 +277,24 @@ function PaginationControls({
   );
 }
 
-function TimeFilterSelect({
+function TimeFilterSelect<T extends string>({
   value,
   onChange,
+  options,
 }: {
-  value: TimeFilter;
-  onChange: (nextValue: TimeFilter) => void;
+  value: T;
+  onChange: (nextValue: T) => void;
+  options: Array<{ value: T; label: string }>;
 }) {
   return (
     <label className="flex w-full min-w-0 flex-col gap-1 text-sm text-body sm:w-auto sm:flex-row sm:items-center sm:gap-2">
       <span className="shrink-0">Tiempo</span>
       <select
         value={value}
-        onChange={(event) => onChange(event.target.value as TimeFilter)}
+        onChange={(event) => onChange(event.target.value as T)}
         className="w-full min-w-0 rounded-md border border-stroke bg-white px-2 py-1.5 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-dark-2 dark:text-white sm:w-auto sm:min-w-[11rem] sm:py-1"
       >
-        {TIME_FILTER_OPTIONS.map((option) => (
+        {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
           </option>
@@ -273,7 +304,8 @@ function TimeFilterSelect({
   );
 }
 
-export default function Sales() {
+export default function Sales(props?: { historyOnly?: boolean }) {
+  const historyOnly = props?.historyOnly === true;
   const [sales, setSales] = useState<Sale[]>([]);
   const [salesByProduct, setSalesByProduct] = useState<SalesByProduct[]>([]);
   const [salesByCategory, setSalesByCategory] = useState<SalesByCategory[]>([]);
@@ -289,12 +321,21 @@ export default function Sales() {
   const [salesByTablePage, setSalesByTablePage] = useState(1);
   const [adjustmentsMonthlyPage, setAdjustmentsMonthlyPage] = useState(1);
   const [salesHistoryFilter, setSalesHistoryFilter] = useState<TimeFilter>("all");
-  const [salesByProductFilter, setSalesByProductFilter] = useState<TimeFilter>("all");
-  const [salesByCategoryFilter, setSalesByCategoryFilter] = useState<TimeFilter>("all");
-  const [salesByWaiterFilter, setSalesByWaiterFilter] = useState<TimeFilter>("all");
-  const [salesByTableFilter, setSalesByTableFilter] = useState<TimeFilter>("all");
+  const [salesByProductFilter, setSalesByProductFilter] = useState<SummaryTimeFilter>("all");
+  const [salesByCategoryFilter, setSalesByCategoryFilter] = useState<SummaryTimeFilter>("all");
+  const [salesByWaiterFilter, setSalesByWaiterFilter] = useState<SummaryTimeFilter>("all");
+  const [salesByTableFilter, setSalesByTableFilter] = useState<SummaryTimeFilter>("all");
   const [adjustmentsMonthlyFilter, setAdjustmentsMonthlyFilter] =
-    useState<TimeFilter>("all");
+    useState<SummaryTimeFilter>("all");
+  const [customDateFrom, setCustomDateFrom] = useState(() =>
+    dayjs().tz(COLOMBIA_TZ).subtract(7, "day").format("YYYY-MM-DD"),
+  );
+  const [customDateTo, setCustomDateTo] = useState(() =>
+    dayjs().tz(COLOMBIA_TZ).format("YYYY-MM-DD"),
+  );
+  const [hiddenSaleIds, setHiddenSaleIds] = useState<Set<number>>(() =>
+    loadHiddenSaleIdsFromStorage(),
+  );
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [sendingEmailSaleId, setSendingEmailSaleId] = useState<number | null>(null);
@@ -302,14 +343,34 @@ export default function Sales() {
   const [purchases, setPurchases] = useState<PurchaseRecord[]>([]);
   const [purchasesLoading, setPurchasesLoading] = useState(true);
 
-  const withPeriodParam = useCallback((basePath: string, period: TimeFilter) => {
+  const withPeriodParam = useCallback((basePath: string, period: SummaryTimeFilter) => {
     return `${basePath}?period=${encodeURIComponent(period)}`;
   }, []);
+
+  const buildSalesListUrl = useCallback(() => {
+    if (salesHistoryFilter === "custom") {
+      return `/api/sales?date_from=${encodeURIComponent(customDateFrom)}&date_to=${encodeURIComponent(customDateTo)}`;
+    }
+    return `/api/sales?period=${encodeURIComponent(salesHistoryFilter)}`;
+  }, [salesHistoryFilter, customDateFrom, customDateTo]);
 
   const loadSalesData = useCallback(async () => {
     setLoading(true);
     setErrorMessage(null);
     try {
+      if (historyOnly) {
+        setPurchasesLoading(false);
+        const salesResponse = await fetch(buildSalesListUrl(), { cache: "no-store" });
+        const salesPayload = await safeJson(salesResponse);
+        if (!salesResponse.ok) {
+          throw new Error(
+            (salesPayload as any)?.message || "No se pudo cargar el historial de ventas",
+          );
+        }
+        setSales(Array.isArray(salesPayload) ? (salesPayload as Sale[]) : []);
+        return;
+      }
+
       setPurchasesLoading(true);
       const [
         salesResponse,
@@ -320,7 +381,7 @@ export default function Sales() {
         adjustmentsMonthlyResponse,
         purchasesResponse,
       ] = await Promise.all([
-        fetch(withPeriodParam("/api/sales", salesHistoryFilter), { cache: "no-store" }),
+        fetch(buildSalesListUrl(), { cache: "no-store" }),
         fetch(withPeriodParam("/api/sales/summary/products", salesByProductFilter), {
           cache: "no-store",
         }),
@@ -431,6 +492,8 @@ export default function Sales() {
       setPurchasesLoading(false);
     }
   }, [
+    historyOnly,
+    buildSalesListUrl,
     adjustmentsMonthlyFilter,
     salesByCategoryFilter,
     salesByProductFilter,
@@ -525,6 +588,20 @@ export default function Sales() {
     [loadSalesData],
   );
 
+  const hideHistorySaleRow = useCallback((id: number) => {
+    setHiddenSaleIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      persistHiddenSaleIds(next);
+      return next;
+    });
+  }, []);
+
+  const restoreAllHiddenHistorySales = useCallback(() => {
+    persistHiddenSaleIds(new Set());
+    setHiddenSaleIds(new Set());
+  }, []);
+
   const totalSalesValue = useMemo(
     () => sales.reduce((acc, sale) => acc + safeNumber(sale.total), 0),
     [sales],
@@ -550,16 +627,27 @@ export default function Sales() {
   );
   const salesBreakdown = useMemo(() => aggregateSalesBreakdown(sales), [sales]);
   const purchasesInSalesPeriod = useMemo(
-    () => filterPurchasesByTimeFilter(purchases, salesHistoryFilter),
-    [purchases, salesHistoryFilter],
+    () =>
+      filterPurchasesByTimeFilter(
+        purchases,
+        salesHistoryFilter,
+        salesHistoryFilter === "custom"
+          ? { from: customDateFrom, to: customDateTo }
+          : null,
+      ),
+    [purchases, salesHistoryFilter, customDateFrom, customDateTo],
   );
   const totalPurchasesInSalesPeriod = useMemo(
     () => sumPurchaseTotalCost(purchasesInSalesPeriod),
     [purchasesInSalesPeriod],
   );
+  const salesVisibleInHistory = useMemo(
+    () => sales.filter((s) => !hiddenSaleIds.has(s.id)),
+    [sales, hiddenSaleIds],
+  );
   const salesHistoryTotalPages = Math.max(
     1,
-    Math.ceil(sales.length / SALES_HISTORY_PAGE_SIZE),
+    Math.ceil(salesVisibleInHistory.length / SALES_HISTORY_PAGE_SIZE),
   );
   const salesByProductTotalPages = Math.max(
     1,
@@ -630,10 +718,14 @@ export default function Sales() {
     setAdjustmentsMonthlyPage(1);
   }, [adjustmentsMonthlyFilter]);
 
+  useEffect(() => {
+    setSalesHistoryPage(1);
+  }, [customDateFrom, customDateTo]);
+
   const paginatedSalesHistory = useMemo(() => {
     const start = (salesHistoryPage - 1) * SALES_HISTORY_PAGE_SIZE;
-    return sales.slice(start, start + SALES_HISTORY_PAGE_SIZE);
-  }, [sales, salesHistoryPage]);
+    return salesVisibleInHistory.slice(start, start + SALES_HISTORY_PAGE_SIZE);
+  }, [salesVisibleInHistory, salesHistoryPage]);
 
   const paginatedSalesByProduct = useMemo(() => {
     const start = (salesByProductPage - 1) * SALES_BY_PRODUCT_PAGE_SIZE;
@@ -662,6 +754,8 @@ export default function Sales() {
 
   return (
     <div className="space-y-6">
+      {!historyOnly ? (
+        <>
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
         <Link
           href="/sales/report"
@@ -705,7 +799,7 @@ export default function Sales() {
 
       <SalesBreakdownPanel
         title="Total facturado y desglose (métricas de ventas)"
-        subtitle="Alineado al filtro de tiempo del historial de ventas. Las compras se filtran con el mismo periodo móvil (7 / 30 / 90 / 365 días) o sin recorte en “Mostrar todo”."
+        subtitle='Alineado al filtro de tiempo del historial (periodo predefinido, “Mostrar todo” o rango personalizado por fechas). Las compras usan el mismo criterio.'
         loading={loading}
         breakdown={salesBreakdown}
         purchasesTotal={totalPurchasesInSalesPeriod}
@@ -713,24 +807,65 @@ export default function Sales() {
       />
 
       <PurchasesMetricsPanel purchases={purchases} loading={purchasesLoading} />
+        </>
+      ) : null}
 
-      <div className="rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+      <div className="relative rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
+        {hiddenSaleIds.size > 0 ? (
+          <button
+            type="button"
+            onClick={restoreAllHiddenHistorySales}
+            className="absolute right-4 top-4 z-10 flex h-9 w-9 items-center justify-center rounded-lg border border-stroke bg-white text-dark shadow-sm hover:bg-gray-2 dark:border-dark-3 dark:bg-gray-dark dark:text-white dark:hover:bg-dark-2"
+            title={`Mostrar ${hiddenSaleIds.size} venta(s) oculta(s) en esta lista`}
+            aria-label="Mostrar ventas ocultas"
+          >
+            <HiOutlineEyeOff className="size-5" aria-hidden />
+          </button>
+        ) : null}
+        <div className="mb-4 flex flex-col gap-3 pr-12 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="min-w-0">
             <h3 className="text-xl font-semibold text-black dark:text-white">Historial de ventas</h3>
             <p className="text-sm text-body">
               Pedidos pagados registrados desde toma de pedidos.
             </p>
           </div>
-          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
-            <TimeFilterSelect value={salesHistoryFilter} onChange={setSalesHistoryFilter} />
-            <button
-              type="button"
-              onClick={loadSalesData}
-              className="rounded-lg border border-stroke px-4 py-2 text-sm font-medium text-black transition hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
-            >
-              Actualizar
-            </button>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
+            <div className="flex w-full flex-wrap items-center gap-2 sm:justify-end">
+              <TimeFilterSelect
+                options={TIME_FILTER_OPTIONS_HISTORY}
+                value={salesHistoryFilter}
+                onChange={setSalesHistoryFilter}
+              />
+              <button
+                type="button"
+                onClick={loadSalesData}
+                className="rounded-lg border border-stroke px-4 py-2 text-sm font-medium text-black transition hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
+              >
+                Actualizar
+              </button>
+            </div>
+            {salesHistoryFilter === "custom" ? (
+              <div className="flex w-full flex-wrap items-end gap-3 text-sm text-body">
+                <label className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-none">
+                  <span>Desde</span>
+                  <input
+                    type="date"
+                    value={customDateFrom}
+                    onChange={(e) => setCustomDateFrom(e.target.value)}
+                    className="rounded-md border border-stroke bg-white px-2 py-1.5 text-sm text-dark dark:border-dark-3 dark:bg-dark-2 dark:text-white"
+                  />
+                </label>
+                <label className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-none">
+                  <span>Hasta</span>
+                  <input
+                    type="date"
+                    value={customDateTo}
+                    onChange={(e) => setCustomDateTo(e.target.value)}
+                    className="rounded-md border border-stroke bg-white px-2 py-1.5 text-sm text-dark dark:border-dark-3 dark:bg-dark-2 dark:text-white"
+                  />
+                </label>
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -740,13 +875,28 @@ export default function Sales() {
           <p className="text-sm text-danger">{errorMessage}</p>
         ) : sales.length === 0 ? (
           <p className="text-sm text-body">No hay ventas registradas.</p>
+        ) : salesVisibleInHistory.length === 0 ? (
+          <div className="space-y-2">
+            <p className="text-sm text-body">
+              Ocultaste todas las ventas de esta vista. Usá el ícono de ojo tachado arriba a la derecha para
+              mostrarlas de nuevo.
+            </p>
+            <button
+              type="button"
+              onClick={restoreAllHiddenHistorySales}
+              className="rounded-lg border border-stroke px-3 py-1.5 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
+            >
+              Mostrar ocultas
+            </button>
+          </div>
         ) : (
           <TableScroll className="-mx-2 sm:mx-0">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Venta</TableHead>
-                <TableHead>Pedido</TableHead>
+                <TableHead className="w-12 whitespace-nowrap pr-0">
+                  <span className="sr-only">Ocultar fila</span>
+                </TableHead>
                 <TableHead>Fecha</TableHead>
                 <TableHead>Medio de pago</TableHead>
                 <TableHead>Factura electronica</TableHead>
@@ -768,11 +918,18 @@ export default function Sales() {
                 );
                 return (
                   <TableRow key={sale.id}>
-                    <TableCell className="font-medium text-black dark:text-white">
-                      #{sale.id}
+                    <TableCell className="pr-0">
+                      <button
+                        type="button"
+                        onClick={() => hideHistorySaleRow(sale.id)}
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-stroke text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
+                        title="Ocultar esta venta de la lista"
+                        aria-label="Ocultar venta de la lista"
+                      >
+                        <HiChevronUp className="size-5" aria-hidden />
+                      </button>
                     </TableCell>
-                    <TableCell>#{sale.order_id}</TableCell>
-                    <TableCell>{formatDate(sale.created_at)}</TableCell>
+                    <TableCell>{formatSaleDate(sale.created_at)}</TableCell>
                     <TableCell className="whitespace-nowrap text-xs text-black dark:text-white">
                       {salePaymentMethodLabel(sale.payment_method ?? undefined)}
                     </TableCell>
@@ -914,7 +1071,7 @@ export default function Sales() {
           </Table>
           </TableScroll>
         )}
-        {!loading && !errorMessage ? (
+        {!loading && !errorMessage && salesVisibleInHistory.length > 0 ? (
           <PaginationControls
             page={salesHistoryPage}
             totalPages={salesHistoryTotalPages}
@@ -925,6 +1082,8 @@ export default function Sales() {
         ) : null}
       </div>
 
+      {!historyOnly ? (
+        <>
       <div className="rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -933,7 +1092,11 @@ export default function Sales() {
             </h3>
             <p className="text-sm text-body">Acumulado por mesa (incluye mesas eliminadas).</p>
           </div>
-          <TimeFilterSelect value={salesByTableFilter} onChange={setSalesByTableFilter} />
+          <TimeFilterSelect
+            options={TIME_FILTER_OPTIONS_SUMMARY}
+            value={salesByTableFilter}
+            onChange={setSalesByTableFilter}
+          />
         </div>
         {loading ? (
           <p className="text-sm text-body">Cargando resumen...</p>
@@ -990,7 +1153,11 @@ export default function Sales() {
               </h3>
               <p className="text-sm text-body">Acumulado por item del menu.</p>
             </div>
-            <TimeFilterSelect value={salesByProductFilter} onChange={setSalesByProductFilter} />
+            <TimeFilterSelect
+              options={TIME_FILTER_OPTIONS_SUMMARY}
+              value={salesByProductFilter}
+              onChange={setSalesByProductFilter}
+            />
           </div>
           {loading ? (
             <p className="text-sm text-body">Cargando resumen...</p>
@@ -1043,7 +1210,11 @@ export default function Sales() {
               </h3>
               <p className="text-sm text-body">Acumulado por categoria del menu.</p>
             </div>
-            <TimeFilterSelect value={salesByCategoryFilter} onChange={setSalesByCategoryFilter} />
+            <TimeFilterSelect
+              options={TIME_FILTER_OPTIONS_SUMMARY}
+              value={salesByCategoryFilter}
+              onChange={setSalesByCategoryFilter}
+            />
           </div>
           {loading ? (
             <p className="text-sm text-body">Cargando resumen...</p>
@@ -1096,7 +1267,11 @@ export default function Sales() {
               </h3>
               <p className="text-sm text-body">Acumulado por mesero asignado.</p>
             </div>
-            <TimeFilterSelect value={salesByWaiterFilter} onChange={setSalesByWaiterFilter} />
+            <TimeFilterSelect
+              options={TIME_FILTER_OPTIONS_SUMMARY}
+              value={salesByWaiterFilter}
+              onChange={setSalesByWaiterFilter}
+            />
           </div>
           {loading ? (
             <p className="text-sm text-body">Cargando resumen...</p>
@@ -1152,6 +1327,7 @@ export default function Sales() {
               </p>
             </div>
             <TimeFilterSelect
+              options={TIME_FILTER_OPTIONS_SUMMARY}
               value={adjustmentsMonthlyFilter}
               onChange={setAdjustmentsMonthlyFilter}
             />
@@ -1197,6 +1373,8 @@ export default function Sales() {
           ) : null}
         </div>
       </div>
+        </>
+      ) : null}
     </div>
   );
 }
