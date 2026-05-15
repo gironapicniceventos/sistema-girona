@@ -44,6 +44,7 @@ _DELETE_SQL = text(
     DELETE FROM sales;
     DELETE FROM pos_order_items;
     DELETE FROM pos_orders;
+    DELETE FROM pos_tables;
     DELETE FROM recipe_items;
     DELETE FROM recipes;
     DELETE FROM stock_movements;

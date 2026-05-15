@@ -4,6 +4,7 @@ import logging
 from fastapi import FastAPI
 from sqlalchemy.exc import OperationalError
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 from . import auth, db, factus, inventory, menu, models, personnel, pos, reservations, sales, seed_staff
 
 app = FastAPI()
@@ -415,6 +416,22 @@ def _init_db() -> None:
         models.Base.metadata.create_all(bind=db.engine)
         _auto_migrate_schema()
         seed_staff.run_if_enabled()
+        if os.getenv("SYNC_WAITER_FICHAS", "1") != "0":
+            s = Session(bind=db.engine)
+            try:
+                n_l, n_c = personnel.sync_waiter_links_for_staff_users(s)
+                s.commit()
+                if n_l or n_c:
+                    logger.info(
+                        "startup: fichas mesero vinculadas=%s creadas=%s",
+                        n_l,
+                        n_c,
+                    )
+            except Exception:
+                s.rollback()
+                logger.exception("SYNC_WAITER_FICHAS al iniciar falló")
+            finally:
+                s.close()
     except OperationalError as exc:
         database_url = os.getenv("DATABASE_URL", "DATABASE_URL=postgresql://postgres:TU_PASSWORD@localhost:5432/girona_dev")
         logger.error("Database connection failed. Check DATABASE_URL and Postgres auth.")

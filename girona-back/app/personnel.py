@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import unicodedata
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -9,6 +10,8 @@ from sqlalchemy.orm import Session
 from . import db, models, schemas
 
 router = APIRouter(prefix="/personnel", tags=["personnel"])
+
+logger = logging.getLogger("uvicorn.error")
 
 WAITER_ROLES = frozenset({"mesero", "caja_mesero"})
 
@@ -61,6 +64,79 @@ def resolve_waiter_for_staff_user(
         w = candidates[0]
         return w.id, w.name
     return None, None
+
+
+def sync_waiter_links_for_staff_users(db_session: Session) -> tuple[int, int]:
+    """
+    Para cada usuario activo con rol mesero o caja_mesero:
+    - si ya tiene Waiter.user_id == user.id, no hace nada;
+    - si existe una ficha activa sin user_id y el nombre coincide (normalizado), vincula;
+    - si no, crea una ficha nueva con ese nombre y user_id.
+
+    Devuelve (n_vinculados, n_creados).
+    """
+    linked = 0
+    created = 0
+    users = (
+        db_session.query(models.User)
+        .filter(models.User.is_active == True)  # noqa: E712
+        .order_by(models.User.id.asc())
+        .all()
+    )
+    for u in users:
+        role = (u.role or "").strip().lower()
+        if role not in WAITER_ROLES:
+            continue
+        full = (u.full_name or "").strip()
+        if not full:
+            logger.warning(
+                "sync_waiter_links: usuario %s sin nombre en perfil; omitido",
+                u.email,
+            )
+            continue
+        if (
+            db_session.query(models.Waiter)
+            .filter(models.Waiter.user_id == u.id)
+            .first()
+        ):
+            continue
+        key = _norm_name_for_match(full)
+        if not key:
+            continue
+        orphans = [
+            w
+            for w in db_session.query(models.Waiter)
+            .filter(
+                models.Waiter.user_id.is_(None),
+                models.Waiter.is_active == True,  # noqa: E712
+            )
+            .all()
+            if _norm_name_for_match(w.name) == key
+        ]
+        if len(orphans) >= 1:
+            if len(orphans) > 1:
+                logger.warning(
+                    "sync_waiter_links: varias fichas sin usuario para nombre %r; "
+                    "vinculando id=%s a %s",
+                    full,
+                    orphans[0].id,
+                    u.email,
+                )
+            chosen = min(orphans, key=lambda w: w.id)
+            chosen.user_id = u.id
+            db_session.add(chosen)
+            linked += 1
+        else:
+            db_session.add(
+                models.Waiter(
+                    name=full,
+                    gender="male",
+                    is_active=True,
+                    user_id=u.id,
+                )
+            )
+            created += 1
+    return linked, created
 
 
 def _ensure_user_available_for_waiter(
