@@ -1053,6 +1053,79 @@ def delete_recipe(recipe_id: str, db_session: Session = Depends(db.get_db)):
     return None
 
 
+def _consume_recipe_stock(
+    db_session: Session,
+    *,
+    recipe: models.Recipe,
+    sold_qty: Decimal,
+    sale_id: int | None = None,
+) -> tuple[int, Decimal]:
+    """Descuenta inventario según la receta. No hace commit. Sin ítems = no-op."""
+    if not recipe.items:
+        return 0, Decimal("0")
+
+    yield_qty = _as_decimal(recipe.yield_quantity)
+    if yield_qty <= 0:
+        return 0, Decimal("0")
+    multiplier = _as_decimal(sold_qty) / yield_qty
+
+    movements_created = 0
+    total_cost = Decimal("0")
+
+    for recipe_item in recipe.items:
+        product = _get_product(db_session, recipe_item.product_id)
+        base_qty = _as_decimal(recipe_item.quantity) * multiplier
+        waste = _as_decimal(recipe_item.waste_pct)
+        required = base_qty * (Decimal("1") + waste)
+
+        next_on_hand = _as_decimal(product.on_hand) - required
+        if next_on_hand < 0:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Stock insuficiente para {product.name}",
+            )
+
+        movement = models.StockMovement(
+            product_id=product.id,
+            movement_type="out",
+            quantity=-required,
+            unit_cost=product.average_cost,
+            reason="sale",
+            reference_type="sale",
+            reference_id=sale_id,
+        )
+        product.on_hand = next_on_hand
+        db_session.add(movement)
+        db_session.add(product)
+        movements_created += 1
+        total_cost += required * _as_decimal(product.average_cost)
+
+    return movements_created, total_cost
+
+
+def apply_pos_order_inventory_consumption(
+    db_session: Session,
+    order: models.PosOrder,
+    sale_id: int,
+) -> None:
+    """Descuenta stock por cada línea del pedido según receta (si existe). Sin commit."""
+    for item in order.items:
+        if item.courtesy:
+            continue
+        qty = _as_decimal(item.quantity)
+        if qty <= 0:
+            continue
+        recipe = (
+            db_session.query(models.Recipe)
+            .options(joinedload(models.Recipe.items))
+            .filter(models.Recipe.menu_item_id == item.menu_item_id)
+            .first()
+        )
+        if not recipe:
+            continue
+        _consume_recipe_stock(db_session, recipe=recipe, sold_qty=qty, sale_id=sale_id)
+
+
 @router.put("/recipes/by-menu-item/{menu_item_id}", response_model=schemas.RecipeOut)
 def upsert_recipe(
     menu_item_id: int, payload: schemas.RecipeUpsert, db_session: Session = Depends(db.get_db)
@@ -1091,48 +1164,19 @@ def upsert_recipe(
 def consume_sale(payload: schemas.ConsumeSaleRequest, db_session: Session = Depends(db.get_db)):
     recipe = (
         db_session.query(models.Recipe)
+        .options(joinedload(models.Recipe.items))
         .filter(models.Recipe.menu_item_id == payload.menu_item_id)
         .first()
     )
     if not recipe:
         raise HTTPException(status_code=409, detail="No hay receta configurada para este producto")
 
-    sold_qty = _as_decimal(payload.quantity)
-    yield_qty = _as_decimal(recipe.yield_quantity)
-    multiplier = sold_qty / yield_qty
-
-    total_cost = Decimal("0")
-    movements_created = 0
-
-    for recipe_item in recipe.items:
-        product = _get_product(db_session, recipe_item.product_id)
-        base_qty = _as_decimal(recipe_item.quantity) * multiplier
-        waste = _as_decimal(recipe_item.waste_pct)
-        required = base_qty * (Decimal("1") + waste)
-
-        next_on_hand = _as_decimal(product.on_hand) - required
-        if next_on_hand < 0:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Stock insuficiente para {product.name}",
-            )
-
-        movement = models.StockMovement(
-            product_id=product.id,
-            movement_type="out",
-            quantity=-required,
-            unit_cost=product.average_cost,
-            reason="sale",
-            reference_type="sale",
-            reference_id=None,
-        )
-        product.on_hand = next_on_hand
-        db_session.add(movement)
-        db_session.add(product)
-        movements_created += 1
-
-        total_cost += required * _as_decimal(product.average_cost)
-
+    movements_created, total_cost = _consume_recipe_stock(
+        db_session,
+        recipe=recipe,
+        sold_qty=_as_decimal(payload.quantity),
+        sale_id=None,
+    )
     db_session.commit()
     return schemas.ConsumeSaleResult(
         menu_item_id=payload.menu_item_id,

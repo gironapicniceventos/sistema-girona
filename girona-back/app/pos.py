@@ -13,6 +13,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from . import db, models, schemas
+from .inventory import apply_pos_order_inventory_consumption
 
 router = APIRouter(prefix="/pos", tags=["pos"])
 logger = logging.getLogger("uvicorn.error")
@@ -583,7 +584,10 @@ def create_order(payload: schemas.PosOrderCreate, db_session: Session = Depends(
 def list_orders(db_session: Session = Depends(db.get_db)):
     return (
         db_session.query(models.PosOrder)
-        .options(joinedload(models.PosOrder.waiter))
+        .options(
+            joinedload(models.PosOrder.waiter),
+            joinedload(models.PosOrder.sale),
+        )
         .order_by(models.PosOrder.id.desc())
         .limit(200)
         .all()
@@ -605,7 +609,10 @@ def clear_finished_orders(db_session: Session = Depends(db.get_db)):
 def get_order(order_id: int, db_session: Session = Depends(db.get_db)):
     order = (
         db_session.query(models.PosOrder)
-        .options(joinedload(models.PosOrder.waiter))
+        .options(
+            joinedload(models.PosOrder.waiter),
+            joinedload(models.PosOrder.sale),
+        )
         .filter(models.PosOrder.id == order_id)
         .first()
     )
@@ -788,6 +795,10 @@ def mark_order_closed(
     order = db_session.query(models.PosOrder).filter(models.PosOrder.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Orden no encontrada")
+    if order.status == "closed":
+        raise HTTPException(status_code=409, detail="La orden ya esta cerrada")
+    if order.status == "void":
+        raise HTTPException(status_code=409, detail="La orden esta anulada")
 
     customer_id = None
     if payload is not None:
@@ -843,13 +854,14 @@ def mark_order_closed(
     if payload is not None and payload.payment_method is not None:
         payment_method = _normalize_payment_method(payload.payment_method)
 
-    _create_sale_from_order(
+    sale = _create_sale_from_order(
         db_session,
         order,
         customer_id=customer_id,
         waiter_id=order.waiter_id,
         payment_method=payment_method,
     )
+    apply_pos_order_inventory_consumption(db_session, order, sale.id)
     db_session.add(order)
     db_session.commit()
     db_session.refresh(order)

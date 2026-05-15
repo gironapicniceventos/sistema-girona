@@ -1,7 +1,7 @@
 "use client";
 
 import { CheckIcon, SearchIcon, TrashIcon } from "@/assets/icons";
-import { DownloadIcon, PreviewIcon } from "@/components/Tables/icons";
+import { DownloadIcon } from "@/components/Tables/icons";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TableScroll } from "@/components/ui/scroll-table";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -10,7 +10,6 @@ import timezone from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
 import jsPDF from "jspdf";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FaRegTrashAlt } from "react-icons/fa";
 import { HiOutlineCash } from "react-icons/hi";
 import { RiDrinks2Fill, RiProhibited2Line, RiRestaurantLine } from "react-icons/ri";
 import { useSession } from "@/components/Auth/SessionContext";
@@ -48,7 +47,7 @@ function escapeHtml(s: string) {
 function pdfLatin1Safe(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
-const POS_HIDDEN_FINISHED_ORDERS_KEY = "pos_hidden_finished_orders_v1";
+
 const TABLE_SECTION_VALUES = [
   "ENTRADA",
   "LOBBY",
@@ -77,34 +76,6 @@ function sectionForTableNumber(n: number): TableSectionValue {
   if (n <= 49) return "TERRAZA 2";
   if (n <= 59) return "PREMIUM";
   return "ROUSSE";
-}
-
-function loadHiddenFinishedOrderIdsFromStorage() {
-  if (typeof window === "undefined") return new Set<number>();
-  try {
-    const raw = window.localStorage.getItem(POS_HIDDEN_FINISHED_ORDERS_KEY);
-    if (!raw) return new Set<number>();
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return new Set<number>();
-    const ids = parsed
-      .map((value) => Number(value))
-      .filter((value) => Number.isInteger(value) && value > 0);
-    return new Set<number>(ids);
-  } catch {
-    return new Set<number>();
-  }
-}
-
-function persistHiddenFinishedOrderIds(ids: Set<number>) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(
-      POS_HIDDEN_FINISHED_ORDERS_KEY,
-      JSON.stringify(Array.from(ids.values())),
-    );
-  } catch {
-    // Ignore local storage write errors.
-  }
 }
 
 type MenuItem = {
@@ -164,6 +135,8 @@ type PosOrderOut = {
   status: string;
   electronic_invoice_status?: string | null;
   electronic_invoice_number?: string | null;
+  /** Medio de pago registrado al cerrar (si aplica). */
+  payment_method?: string | null;
   subtotal: number | string;
   tax_total: number | string;
   discount_total: number | string;
@@ -337,135 +310,149 @@ function orderStatusMeta(status: string) {
   );
 }
 
-function buildOrderPdf(order: PosOrderOut, tableName: string) {
+/** Badge en la grilla POS: resalta pedido cerrado con factura DIAN emitida. */
+function posOrderRowStatusMeta(order: PosOrderOut) {
+  if (order.status === "closed" && order.electronic_invoice_status === "issued") {
+    return {
+      label: "Pagado · Facturado",
+      className:
+        "border border-green-200 bg-green-100 text-green-900 dark:border-green-800 dark:bg-green-900/45 dark:text-green-100",
+    };
+  }
+  if (order.status === "closed") {
+    return {
+      label: "Pagado",
+      className:
+        "border border-emerald-200/80 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100",
+    };
+  }
+  return orderStatusMeta(order.status);
+}
+
+function buildPosTicketPdf(order: PosOrderOut, tableName: string) {
   const doc = new jsPDF();
+  const m = 14;
+  const pageW = 196;
+  let y = 18;
   const status = orderStatusMeta(order.status);
   const createdAt = toColombiaTime(order.opened_at);
-  const lineSubtotalOf = (item: PosOrderOut["items"][number]) =>
-    Number(item.line_subtotal ?? 0) || Math.max(0, Number(item.unit_price) * Number(item.quantity));
-  const lineTaxOf = (item: PosOrderOut["items"][number]) =>
-    Number(item.line_tax ?? 0) || lineSubtotalOf(item) * Number(item.tax_rate ?? 0);
-  const lineTotalOf = (item: PosOrderOut["items"][number]) =>
-    Number(item.line_total ?? 0) || lineSubtotalOf(item) + lineTaxOf(item);
+  const closedAt = toColombiaTime(order.closed_at ?? null);
 
-  const drawPage = (
-    title: string,
-    items: PosOrderOut["items"],
-    totals: Array<[string, number | string]>,
-    options?: { includeZoneLabel?: boolean; footerNote?: string },
-  ) => {
-    doc.setFontSize(16);
-    doc.text(`Pedido #${order.id}`, 14, 16);
-    doc.setFontSize(11);
-    doc.text(`Mesa: ${tableName}`, 14, 26);
-    doc.text(`Estado: ${status.label}`, 14, 32);
+  doc.setFontSize(15);
+  doc.setFont("helvetica", "bold");
+  doc.text(pdfLatin1Safe(BUSINESS_NAME), m, y);
+  y += 8;
+  doc.setFontSize(11);
+  doc.text("COMPROBANTE POS — TICKET DE VENTA", m, y);
+  y += 6;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text(`Pedido #${order.id}  |  Mesa: ${pdfLatin1Safe(tableName)}`, m, y);
+  y += 5;
+  doc.text(`Estado: ${pdfLatin1Safe(status.label)}`, m, y);
+  y += 5;
+  const when = closedAt?.isValid()
+    ? closedAt
+    : createdAt?.isValid()
+      ? createdAt
+      : null;
+  doc.text(`Fecha: ${when?.isValid() ? when.format("DD/MM/YYYY HH:mm") : "—"}`, m, y);
+  y += 5;
+
+  if (order.status === "closed") {
+    if (order.electronic_invoice_status === "issued" && order.electronic_invoice_number) {
+      doc.setFont("helvetica", "bold");
+      doc.text(
+        `Factura electronica DIAN: ${pdfLatin1Safe(String(order.electronic_invoice_number))}`,
+        m,
+        y,
+      );
+      doc.setFont("helvetica", "normal");
+      y += 5;
+    } else if (order.electronic_invoice_status === "failed") {
+      doc.text("Factura electronica: emision fallida (revisar en modulo de ventas).", m, y);
+      y += 5;
+    }
+  }
+
+  const payRaw = order.payment_method;
+  if (payRaw && String(payRaw).trim()) {
     doc.text(
-      `Creado: ${createdAt?.isValid() ? createdAt.format("DD/MM/YYYY HH:mm") : "—"}`,
-      14,
-      38,
+      `Medio de pago: ${pdfLatin1Safe(paymentMethodLabel(String(payRaw)))}`,
+      m,
+      y,
     );
+    y += 5;
+  }
 
-    doc.setFontSize(13);
-    doc.text(title, 14, 50);
-    doc.setFontSize(10);
+  y += 4;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.text("Producto", m, y);
+  doc.text("Cant.", 128, y);
+  doc.text("Total", pageW, y, { align: "right" });
+  y += 2;
+  doc.setLineWidth(0.3);
+  doc.line(m, y, pageW, y);
+  y += 6;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
 
-    let y = 58;
-    if (items.length === 0) {
-      doc.text("Sin items en esta sección.", 14, y);
-      y += 12;
-    } else {
-      items.forEach((item, index) => {
-        if (y > 270) {
-          doc.addPage();
-          y = 20;
-        }
-        const lineTotal = lineTotalOf(item);
-        doc.text(`${index + 1}. ${item.name} x${item.quantity}`, 14, y);
-        doc.text(`${formatMoney(item.unit_price)} c/u`, 14, y + 6);
-        if (options?.includeZoneLabel !== false) {
-          doc.text(`Zona: ${item.zone === "bar" ? "Bar" : "Restaurante"}`, 80, y + 6);
-        }
-        doc.text(`Total: ${formatMoney(lineTotal)}`, 196, y, { align: "right" });
-        if (item.note) {
-          doc.text(`Nota: ${item.note}`, 14, y + 12);
-          y += 20;
-        } else {
-          y += 16;
-        }
-      });
+  const lineTotalOf = (item: PosOrderOut["items"][number]) => Number(item.line_total ?? 0);
+
+  for (const it of order.items) {
+    const nameLines = doc.splitTextToSize(pdfLatin1Safe(String(it.name)), 100);
+    const blockH = Math.max(nameLines.length * 4.8, 6);
+    if (y + blockH > 275) {
+      doc.addPage();
+      y = 20;
     }
-
-    y += 4;
-    doc.setFontSize(11);
-    totals.forEach(([label, value]) => {
-      if (y > 280) {
-        doc.addPage();
-        y = 20;
-      }
-      doc.text(label, 140, y);
-      doc.text(formatMoney(value), 196, y, { align: "right" });
-      y += 8;
+    const rowTop = y;
+    nameLines.forEach((line: string, i: number) => {
+      doc.text(line, m, rowTop + 4 + i * 4.8);
     });
+    doc.text(String(it.quantity), 128, rowTop + 4);
+    doc.text(formatMoney(lineTotalOf(it)), pageW, rowTop + 4, { align: "right" });
+    y = rowTop + blockH + 2;
+  }
 
-    if (options?.footerNote) {
-      if (y > 285) {
-        doc.addPage();
-        y = 20;
-      }
-      doc.setFontSize(9);
-      doc.text(options.footerNote, 14, y + 2);
+  y += 4;
+  const addTotalRow = (label: string, value: number | string, bold?: boolean) => {
+    if (y > 285) {
+      doc.addPage();
+      y = 20;
     }
+    doc.setFont("helvetica", bold ? "bold" : "normal");
+    doc.text(label, m, y);
+    doc.text(formatMoney(value), pageW, y, { align: "right" });
+    y += 6;
+    doc.setFont("helvetica", "normal");
   };
+  addTotalRow("Subtotal", order.subtotal);
+  addTotalRow("IVA / impuesto lineas", order.tax_total);
+  addTotalRow("Descuentos", order.discount_total);
+  addTotalRow("Cortesias", order.courtesy_total);
+  addTotalRow("Servicio", order.service_total);
+  addTotalRow("Utilidad", order.utility_total ?? 0);
+  addTotalRow("TOTAL", order.total, true);
 
-  const restaurantItems = order.items.filter((item) => item.zone !== "bar");
-  const barItems = order.items.filter((item) => item.zone === "bar");
-
-  const buildSectionTotals = (items: PosOrderOut["items"]): Array<[string, number]> => {
-    const subtotal = items.reduce((acc, item) => acc + lineSubtotalOf(item), 0);
-    const discounts = items.reduce((acc, item) => acc + Number(item.discount_amount || 0), 0);
-    const courtesies = items.reduce(
-      (acc, item) => acc + (item.courtesy ? Number(item.unit_price) * Number(item.quantity) : 0),
-      0,
-    );
-    const total = items.reduce((acc, item) => acc + lineTotalOf(item), 0);
-    return [
-      ["Subtotal", subtotal],
-      ["Descuentos", discounts],
-      ["Cortesías", courtesies],
-      ["Total", total],
-    ];
-  };
-
-  drawPage("Comanda Restaurante", restaurantItems, buildSectionTotals(restaurantItems), {
-    includeZoneLabel: false,
-    footerNote:
-      "INC u otros impuestos al consumo, si aplican, van incluidos en el total sin discriminar lineas.",
-  });
-  doc.addPage();
-  drawPage("Comanda Bar", barItems, buildSectionTotals(barItems), {
-    includeZoneLabel: false,
-    footerNote:
-      "INC u otros impuestos al consumo, si aplican, van incluidos en el total sin discriminar lineas.",
-  });
-  doc.addPage();
-  drawPage(
-    "Comanda General",
-    order.items,
-    [
-      ["Subtotal", order.subtotal],
-      ["Descuentos", order.discount_total],
-      ["Cortesías", order.courtesy_total],
-      ["Servicio", order.service_total],
-      ["Utilidad", order.utility_total ?? 0],
-      ["Total", order.total],
-    ],
-    {
-      includeZoneLabel: true,
-      footerNote:
-        "INC u otros impuestos al consumo, si aplican, van incluidos en el total sin discriminar lineas.",
-    },
+  doc.setFontSize(8);
+  const foot = doc.splitTextToSize(
+    pdfLatin1Safe(
+      "Documento interno POS a nombre de la empresa. Si se emitio factura electronica, esa es el titulo valorado ante la DIAN. " +
+        PREFACTURA_INC_FOOTNOTE,
+    ),
+    pageW - m,
   );
-
+  y += 2;
+  for (const ln of foot) {
+    if (y > 285) {
+      doc.addPage();
+      y = 20;
+    }
+    doc.text(ln, m, y);
+    y += 4;
+  }
   return doc;
 }
 
@@ -767,12 +754,6 @@ export default function PosScreen() {
   const [cart, setCart] = useState<Record<number, PosOrderItemCreate>>({});
   const [appendingOrderId, setAppendingOrderId] = useState<number | null>(null);
   const [noteInput, setNoteInput] = useState("");
-  const [clearFinishedStatus, setClearFinishedStatus] = useState<
-    "idle" | "loading"
-  >("idle");
-  const [hiddenFinishedOrderIds, setHiddenFinishedOrderIds] = useState<Set<number>>(
-    loadHiddenFinishedOrderIdsFromStorage,
-  );
 
   const [newTableName, setNewTableName] = useState("");
   const [newTableSection, setNewTableSection] = useState<TableSectionValue>("ENTRADA");
@@ -883,19 +864,7 @@ export default function PosScreen() {
     };
   }, [paymentOrder, applyConsumptionTax, serviceTipInput]);
 
-  const activeOrders = useMemo(
-    () => orders.filter((o) => !["closed", "void"].includes(o.status)),
-    [orders],
-  );
-  const finishedOrders = useMemo(
-    () =>
-      orders.filter(
-        (o) =>
-          ["closed", "void"].includes(o.status) &&
-          !hiddenFinishedOrderIds.has(Number(o.id)),
-      ),
-    [orders, hiddenFinishedOrderIds],
-  );
+  const activeOrders = orders;
   const visibleTables = useMemo(
     () =>
       tables.filter((table) => {
@@ -958,14 +927,14 @@ export default function PosScreen() {
     openWaiterModal(order);
   }
 
-  function handlePreviewPdf(order: PosOrderOut) {
-    const doc = buildOrderPdf(order, getTableName(order.table_id));
-    doc.output("dataurlnewwindow");
-  }
-
-  function handleDownloadPdf(order: PosOrderOut) {
-    const doc = buildOrderPdf(order, getTableName(order.table_id));
-    doc.save(`pedido-${order.id}.pdf`);
+  function handleDownloadPosTicket(order: PosOrderOut) {
+    try {
+      const doc = buildPosTicketPdf(order, getTableName(order.table_id));
+      doc.save(`ticket-pos-${order.id}.pdf`);
+    } catch (err) {
+      console.error(err);
+      window.alert("No se pudo generar el ticket POS.");
+    }
   }
 
   async function handleMarkOrderDelivered(
@@ -1126,6 +1095,22 @@ export default function PosScreen() {
             `Pedido pagado y factura emitida (#${responsePayload.factus_bill_number}).`) ||
           "Pedido pagado y factura emitida en Factus.",
       });
+      const billNo =
+        typeof responsePayload?.factus_bill_number === "string"
+          ? responsePayload.factus_bill_number.trim()
+          : "";
+      try {
+        const ticketOrder: PosOrderOut = {
+          ...order,
+          status: "closed",
+          electronic_invoice_status: "issued",
+          electronic_invoice_number: billNo || order.electronic_invoice_number || null,
+        };
+        const doc = buildPosTicketPdf(ticketOrder, getTableName(order.table_id));
+        doc.save(`ticket-pos-${order.id}.pdf`);
+      } catch (e) {
+        console.error(e);
+      }
       return true;
     } catch {
       setPaymentStatus({
@@ -1205,36 +1190,6 @@ export default function PosScreen() {
       window.alert("Error eliminando el producto del pedido.");
     } finally {
       setDeletingViewItemId(null);
-    }
-  }
-
-  async function handleClearFinishedOrders() {
-    if (finishedOrders.length === 0) return;
-    if (!window.confirm("¿Limpiar historial de pedidos finalizados?")) return;
-    setClearFinishedStatus("loading");
-    try {
-      const res = await fetch("/api/pos/orders/finished", { method: "DELETE" });
-      const payload = (await res.json().catch(() => null)) as any;
-      if (!res.ok) {
-        window.alert(
-          (typeof payload?.message === "string" && payload.message) ||
-            (typeof payload?.detail === "string" && payload.detail) ||
-            "No se pudo limpiar el historial.",
-        );
-        return;
-      }
-      setHiddenFinishedOrderIds((prev) => {
-        const next = new Set(prev);
-        for (const order of finishedOrders) {
-          next.add(Number(order.id));
-        }
-        persistHiddenFinishedOrderIds(next);
-        return next;
-      });
-    } catch {
-      window.alert("Error limpiando el historial.");
-    } finally {
-      setClearFinishedStatus("idle");
     }
   }
 
@@ -1635,10 +1590,6 @@ export default function PosScreen() {
       .then((data) => Array.isArray(data) && setOrders(data));
   }, []);
 
-  useEffect(() => {
-    persistHiddenFinishedOrderIds(hiddenFinishedOrderIds);
-  }, [hiddenFinishedOrderIds]);
-
   function addToCart(item: MenuItem) {
     if (mode !== "create") return;
     if (!isPosOrderableMenuItem(item)) return;
@@ -1944,15 +1895,16 @@ export default function PosScreen() {
       <div className="rounded-[10px] border border-stroke bg-white p-4 shadow-1 dark:border-dark-3 dark:bg-gray-dark">
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <div>
-            <h2 className="text-lg font-semibold text-dark dark:text-white">Pedidos en curso</h2>
+            <h2 className="text-lg font-semibold text-dark dark:text-white">Pedidos</h2>
             <p className="text-sm text-body-color dark:text-dark-6">
-              Comandas abiertas o enviadas listas para ver, exportar o marcar como entregadas.
+              Comandas en curso, entregadas o pagadas. Los pedidos facturados ante la DIAN se muestran en
+              verde.
             </p>
           </div>
         </div>
 
         {activeOrders.length === 0 ? (
-          <p className="text-sm text-dark-6 dark:text-dark-6">No hay pedidos en curso.</p>
+          <p className="text-sm text-dark-6 dark:text-dark-6">No hay pedidos activos.</p>
         ) : (
           <TableScroll className="-mx-1 sm:mx-0">
           <Table>
@@ -1967,20 +1919,30 @@ export default function PosScreen() {
             </TableHeader>
             <TableBody>
               {activeOrders.map((order) => {
-                const status = orderStatusMeta(order.status);
+                const status = posOrderRowStatusMeta(order);
                 const createdAt = toColombiaTime(order.opened_at);
                 const deliveredAt = toColombiaTime(order.delivered_at);
                 const isDelivered = order.status === "delivered";
                 const isPaid = order.status === "closed";
                 const isVoided = order.status === "void";
                 const canVoid = order.status === "open" || order.status === "sent";
+                const invoicedOk =
+                  isPaid && order.electronic_invoice_status === "issued";
                 const actionTooltip = isPaid
-                  ? "Pedido pago"
+                  ? invoicedOk
+                    ? "Pedido finalizado"
+                    : "Pedido pagado"
                   : isDelivered
                     ? "Marcar pago"
                     : "Marcar entrega";
+                const rowHighlight = invoicedOk
+                  ? "bg-green-50/95 dark:bg-green-950/35 border-l-4 border-l-green-600"
+                  : "";
                 return (
-                  <TableRow key={order.id} className="border-[#eee] dark:border-dark-3">
+                  <TableRow
+                    key={order.id}
+                    className={`border-[#eee] dark:border-dark-3 ${rowHighlight}`}
+                  >
                     <TableCell className="min-w-[200px] xl:pl-7.5">
                       <h5 className="text-dark dark:text-white">Pedido #{order.id}</h5>
                       {resolveWaiterName(order) ? (
@@ -1992,7 +1954,13 @@ export default function PosScreen() {
                         Mesa: {getTableName(order.table_id)} · Total: {formatMoney(order.total)}
                       </p>
                       {order.status === "closed" ? (
-                        <p className="mt-[2px] text-xs text-body-color dark:text-dark-6">
+                        <p
+                          className={
+                            invoicedOk
+                              ? "mt-[2px] text-xs font-semibold text-green-700 dark:text-green-300"
+                              : "mt-[2px] text-xs text-body-color dark:text-dark-6"
+                          }
+                        >
                           Factura electrónica:{" "}
                           {order.electronic_invoice_status === "issued"
                             ? `Emitida${order.electronic_invoice_number ? ` (#${order.electronic_invoice_number})` : ""}`
@@ -2021,16 +1989,6 @@ export default function PosScreen() {
                     </TableCell>
                     <TableCell className="xl:pr-7.5">
                       <div className="flex items-center justify-end gap-x-3.5">
-                        <Tooltip label="Ver PDF">
-                          <button
-                            type="button"
-                            onClick={() => handlePreviewPdf(order)}
-                            className="hover:text-primary"
-                          >
-                            <span className="sr-only">Ver PDF</span>
-                            <PreviewIcon />
-                          </button>
-                        </Tooltip>
                         <Tooltip label={actionTooltip}>
                           <button
                             type="button"
@@ -2043,18 +2001,18 @@ export default function PosScreen() {
                                 openWaiterModal(order);
                               }
                             }}
-                            disabled={isVoided}
+                            disabled={isVoided || isPaid}
                             className={
                               "flex h-9 w-9 items-center justify-center rounded-lg border text-primary " +
-                              (isVoided
-                                ? "cursor-not-allowed border-gray-300 text-gray-400"
+                              (isVoided || isPaid
+                                ? invoicedOk
+                                  ? "cursor-default border-green-500/50 bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-200"
+                                  : "cursor-not-allowed border-gray-300 text-gray-400"
                                 : "border-primary/70 hover:border-primary hover:bg-primary/10")
                             }
                           >
                             <span className="sr-only">{actionTooltip}</span>
-                            {isPaid ? (
-                              <FaRegTrashAlt />
-                            ) : isDelivered ? (
+                            {isPaid ? <CheckIcon /> : isDelivered ? (
                               <HiOutlineCash />
                             ) : (
                               <CheckIcon />
@@ -2073,132 +2031,13 @@ export default function PosScreen() {
                             </button>
                           </Tooltip>
                         ) : null}
-                        <Tooltip label="Descargar PDF">
+                        <Tooltip label="Descargar ticket POS (PDF)">
                           <button
                             type="button"
-                            onClick={() => handleDownloadPdf(order)}
+                            onClick={() => handleDownloadPosTicket(order)}
                             className="hover:text-primary"
                           >
-                            <span className="sr-only">Descargar PDF</span>
-                            <DownloadIcon />
-                          </button>
-                        </Tooltip>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-          </TableScroll>
-        )}
-      </div>
-
-      <div className="mt-6 rounded-[10px] border border-stroke bg-white p-4 shadow-1 dark:border-dark-3 dark:bg-gray-dark">
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <h2 className="text-lg font-semibold text-dark dark:text-white">
-              Historial de pedidos finalizados
-            </h2>
-            <p className="text-sm text-body-color dark:text-dark-6">
-              Pedidos pagados o anulados.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={handleClearFinishedOrders}
-            disabled={finishedOrders.length === 0 || clearFinishedStatus === "loading"}
-            className={
-              "w-full shrink-0 rounded-lg border px-3 py-2 text-sm font-semibold sm:ml-auto sm:w-auto " +
-              (finishedOrders.length === 0 || clearFinishedStatus === "loading"
-                ? "cursor-not-allowed border-gray-200 text-gray-400"
-                : "border-red/60 text-red hover:border-red hover:bg-red/10")
-            }
-          >
-            {clearFinishedStatus === "loading" ? "Limpiando..." : "Limpiar historial"}
-          </button>
-        </div>
-
-        {finishedOrders.length === 0 ? (
-          <p className="text-sm text-dark-6 dark:text-dark-6">Sin historial aún.</p>
-        ) : (
-          <TableScroll className="-mx-1 sm:mx-0">
-          <Table>
-            <TableHeader>
-              <TableRow className="border-none bg-[#F7F9FC] dark:bg-dark-2 [&>th]:py-4 [&>th]:text-base [&>th]:text-dark [&>th]:dark:text-white">
-                <TableHead className="min-w-[180px] xl:pl-7.5">Nombre del pedido</TableHead>
-                <TableHead className="min-w-[160px]">Creado</TableHead>
-                <TableHead className="min-w-[160px]">Finalizado</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead className="text-right xl:pr-7.5">Acciones</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {finishedOrders.map((order) => {
-                const status = orderStatusMeta(order.status);
-                const createdAt = toColombiaTime(order.opened_at);
-                const deliveredAt = toColombiaTime(order.delivered_at);
-                const closedAt = toColombiaTime(order.closed_at ?? null);
-                const finalAt = closedAt?.isValid() ? closedAt : deliveredAt;
-                return (
-                  <TableRow key={order.id} className="border-[#eee] dark:border-dark-3">
-                    <TableCell className="min-w-[200px] xl:pl-7.5">
-                      <h5 className="text-dark dark:text-white">Pedido #{order.id}</h5>
-                      {resolveWaiterName(order) ? (
-                        <p className="mt-[2px] text-body-sm font-medium text-dark-6 dark:text-dark-6">
-                          Mesero: {resolveWaiterName(order)}
-                        </p>
-                      ) : null}
-                      <p className="mt-[3px] text-body-sm font-medium text-dark-6 dark:text-dark-6">
-                        Mesa: {getTableName(order.table_id)} · Total: {formatMoney(order.total)}
-                      </p>
-                      {order.status === "closed" ? (
-                        <p className="mt-[2px] text-xs text-body-color dark:text-dark-6">
-                          Factura electrónica:{" "}
-                          {order.electronic_invoice_status === "issued"
-                            ? `Emitida${order.electronic_invoice_number ? ` (#${order.electronic_invoice_number})` : ""}`
-                            : order.electronic_invoice_status === "failed"
-                              ? "Fallida"
-                              : "Pendiente"}
-                        </p>
-                      ) : null}
-                    </TableCell>
-                    <TableCell className="min-w-[170px]">
-                      <p className="text-dark dark:text-white">
-                        {createdAt?.isValid()
-                          ? createdAt.format("DD/MM/YYYY HH:mm")
-                          : "Fecha no disponible"}
-                      </p>
-                    </TableCell>
-                    <TableCell className="min-w-[170px]">
-                      <p className="text-dark dark:text-white">
-                        {finalAt?.isValid() ? finalAt.format("DD/MM/YYYY HH:mm") : "—"}
-                      </p>
-                    </TableCell>
-                    <TableCell className="min-w-[140px]">
-                      <div className={`max-w-fit rounded-full px-3.5 py-1 text-sm font-medium ${status.className}`}>
-                        {status.label}
-                      </div>
-                    </TableCell>
-                    <TableCell className="xl:pr-7.5">
-                      <div className="flex items-center justify-end gap-x-3.5">
-                        <Tooltip label="Ver PDF">
-                          <button
-                            type="button"
-                            onClick={() => handlePreviewPdf(order)}
-                            className="hover:text-primary"
-                          >
-                            <span className="sr-only">Ver PDF</span>
-                            <PreviewIcon />
-                          </button>
-                        </Tooltip>
-                        <Tooltip label="Descargar PDF">
-                          <button
-                            type="button"
-                            onClick={() => handleDownloadPdf(order)}
-                            className="hover:text-primary"
-                          >
-                            <span className="sr-only">Descargar PDF</span>
+                            <span className="sr-only">Descargar ticket POS</span>
                             <DownloadIcon />
                           </button>
                         </Tooltip>
@@ -2665,6 +2504,12 @@ export default function PosScreen() {
                     {paymentStatus.kind === "loading" ? "Guardando..." : "Guardar pago"}
                   </button>
                 </div>
+              </div>
+            ) : null}
+
+            {paymentStatus.kind === "success" ? (
+              <div className="mt-3 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm font-medium text-green-900 dark:border-green-800 dark:bg-green-950/40 dark:text-green-100">
+                {paymentStatus.message}
               </div>
             ) : null}
 

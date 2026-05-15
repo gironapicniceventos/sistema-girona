@@ -424,6 +424,7 @@ class PosOrderOut(BaseModel):
     status: str
     electronic_invoice_status: str | None = None
     electronic_invoice_number: str | None = None
+    payment_method: str | None = None
     subtotal: Decimal
     tax_total: Decimal
     discount_total: Decimal

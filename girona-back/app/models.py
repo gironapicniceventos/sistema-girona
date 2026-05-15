@@ -312,6 +312,12 @@ class PosOrder(Base):
         return self.sale.electronic_invoice.factus_bill_number
 
     @property
+    def payment_method(self) -> str | None:
+        if not self.sale:
+            return None
+        return self.sale.payment_method
+
+    @property
     def waiter_name(self) -> str | None:
         if not self.waiter:
             return None
