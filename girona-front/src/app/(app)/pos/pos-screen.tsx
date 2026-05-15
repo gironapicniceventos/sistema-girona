@@ -874,8 +874,9 @@ export default function PosScreen() {
   const sessionWaiterId = me?.waiter_id ?? null;
   const sessionWaiterDisplay =
     (me?.waiter_name ?? "").trim() || (me?.name ?? "").trim() || null;
-  /** Solo meseros con ficha vinculada omiten la selección; caja/caja_mesero y demás eligen en el modal. */
-  const autoWaiterRole = me != null && (me.role ?? "").trim().toLowerCase() === "mesero";
+  /** Mesero o caja+mesero con ficha vinculada (user_id o nombre único) omiten el desplegable. */
+  const roleLower = (me?.role ?? "").trim().toLowerCase();
+  const autoWaiterRole = roleLower === "mesero" || roleLower === "caja_mesero";
   const useAutoWaiter = autoWaiterRole && sessionWaiterId != null;
 
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
@@ -1457,13 +1458,16 @@ export default function PosScreen() {
     if (!hasWaiterOnOrder) {
       if (useAutoWaiter && sessionWaiterId != null) {
         waiterId = sessionWaiterId;
-      } else {
+      } else if (waiterList.length > 0) {
         const parsedId = Number(selectedWaiterId);
         if (!Number.isFinite(parsedId) || parsedId <= 0) {
           setWaiterStatus({ kind: "error", message: "Selecciona un mesero." });
           return;
         }
         waiterId = parsedId;
+      } else {
+        /** Sin fichas activas el API igual deja marcar entregado (waiter_id queda null). */
+        waiterId = null;
       }
     }
     const updated = await handleMarkOrderDelivered(waiterOrder.id, waiterId);
@@ -1936,6 +1940,21 @@ export default function PosScreen() {
 
   return (
     <div className="space-y-4">
+      {me && autoWaiterRole && sessionWaiterId == null ? (
+        <div
+          role="status"
+          className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/35 dark:text-amber-100"
+        >
+          <p className="font-medium">Tu sesión no está vinculada a una ficha de mesero.</p>
+          <p className="mt-1 text-xs opacity-90">
+            En <span className="font-semibold">Personal → Meseros</span>, un administrador debe vincular tu
+            usuario a la ficha o crear un mesero con el{" "}
+            <span className="font-semibold">mismo nombre</span> que tu perfil (sin duplicados). Mientras
+            tanto puedes cobrar, pero el pedido puede quedar sin mesero asignado si no hay fichas en el
+            sistema.
+          </p>
+        </div>
+      ) : null}
       <div className="rounded-2xl border border-stroke bg-white p-4 shadow-1 dark:border-dark-3 dark:bg-gray-dark">
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="min-w-0">
@@ -2272,22 +2291,34 @@ export default function PosScreen() {
             <div className="mt-4 space-y-3">
               {waiterOrder.waiter_id == null && !useAutoWaiter ? (
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
-                    Selecciona mesero
-                  </label>
-                  <select
-                    value={selectedWaiterId}
-                    onChange={(e) => setSelectedWaiterId(e.target.value)}
-                    className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
-                    disabled={loadingWaiters}
-                  >
-                    <option value="">Seleccionar mesero</option>
-                    {waiterList.map((waiter) => (
-                      <option key={waiter.id} value={String(waiter.id)}>
-                        {waiter.name}
-                      </option>
-                    ))}
-                  </select>
+                  {loadingWaiters ? (
+                    <p className="text-xs text-body-color dark:text-dark-6">Cargando meseros…</p>
+                  ) : waiterList.length === 0 ? (
+                    <p className="rounded-md border border-stroke bg-gray-2 px-3 py-2 text-xs leading-relaxed text-body-color dark:border-dark-3 dark:bg-dark-2 dark:text-dark-6">
+                      No hay <span className="font-semibold text-dark dark:text-white">fichas de mesero</span>{" "}
+                      activas. Puedes usar <span className="font-semibold">Continuar al pago</span> igualmente;
+                      el pedido quedará sin mesero en cuenta. Para registrar ventas por mesero, crea fichas en{" "}
+                      <span className="font-semibold">Personal → Meseros</span>.
+                    </p>
+                  ) : (
+                    <>
+                      <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
+                        Selecciona mesero
+                      </label>
+                      <select
+                        value={selectedWaiterId}
+                        onChange={(e) => setSelectedWaiterId(e.target.value)}
+                        className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
+                      >
+                        <option value="">Seleccionar mesero</option>
+                        {waiterList.map((waiter) => (
+                          <option key={waiter.id} value={String(waiter.id)}>
+                            {waiter.name}
+                          </option>
+                        ))}
+                      </select>
+                    </>
+                  )}
                 </div>
               ) : null}
               {waiterOrder.waiter_id == null && useAutoWaiter && sessionWaiterDisplay ? (

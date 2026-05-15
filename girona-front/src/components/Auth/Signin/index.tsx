@@ -1,6 +1,5 @@
 import { Suspense } from "react";
 import SigninWithPassword from "../SigninWithPassword";
-import { StaffLoginReference } from "../StaffLoginReference";
 
 export default function Signin() {
   return (
@@ -9,7 +8,6 @@ export default function Signin() {
         <Suspense fallback={null}>
           <SigninWithPassword />
         </Suspense>
-        <StaffLoginReference />
       </div>
     </>
   );
