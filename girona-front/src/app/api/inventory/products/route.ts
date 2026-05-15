@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { forwardAuthHeadersFromRequest } from "../../personnel/_utils";
+
 type InventoryProductCreateBody = {
   name?: string;
   sku?: string | null;
@@ -64,7 +66,10 @@ export async function GET(request: Request) {
 
   let response: Response;
   try {
-    response = await fetch(backendUrl.toString(), { cache: "no-store" });
+    response = await fetch(backendUrl.toString(), {
+      cache: "no-store",
+      headers: forwardAuthHeadersFromRequest(request),
+    });
   } catch (error) {
     return NextResponse.json(
       {
@@ -131,7 +136,10 @@ export async function POST(request: Request) {
   try {
     response = await fetch(url, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        ...forwardAuthHeadersFromRequest(request),
+      },
       body: JSON.stringify({
         name,
         sku: body.sku ?? null,

@@ -15,6 +15,8 @@ import {
   getPosCategoryIcon,
   RESTAURANTE_CATEGORY_ICONS as RESTAURANTE_NAV,
 } from "@/lib/pos-menu-category-icons";
+import { formatApiErrorMessage } from "@/app/api/personnel/_utils";
+import { readAuth } from "@/lib/auth/storage";
 
 type MenuItem = {
   id: number;
@@ -331,17 +333,38 @@ export default function Menu({
 
   useEffect(() => {
     if (!recipeModalItem && !showCreate) return;
+    let cancelled = false;
     setInventoryLoading(true);
     setInventoryError(null);
-    Promise.all([
-      fetch("/api/inventory/products?kind=ingredient", { cache: "no-store" })
-        .then((res) => res.json().catch(() => null)),
-      fetch("/api/inventory/recipes", { cache: "no-store" })
-        .then((res) => res.json().catch(() => null)),
-    ])
-      .then(([productsPayload, recipesPayload]) => {
+
+    (async () => {
+      try {
+        const auth = readAuth();
+        const headers: Record<string, string> = {};
+        if (auth?.accessToken) {
+          headers.authorization = `${auth.tokenType || "Bearer"} ${auth.accessToken}`;
+        }
+        const [productsRes, recipesRes] = await Promise.all([
+          fetch("/api/inventory/products?kind=ingredient", { cache: "no-store", headers }),
+          fetch("/api/inventory/recipes", { cache: "no-store", headers }),
+        ]);
+        const productsPayload = await productsRes.json().catch(() => null);
+        const recipesPayload = await recipesRes.json().catch(() => null);
+        if (cancelled) return;
+        if (!productsRes.ok) {
+          throw new Error(
+            formatApiErrorMessage(productsPayload) ||
+              `No se pudieron cargar ingredientes (${productsRes.status}).`,
+          );
+        }
+        if (!recipesRes.ok) {
+          throw new Error(
+            formatApiErrorMessage(recipesPayload) ||
+              `No se pudieron cargar recetas (${recipesRes.status}).`,
+          );
+        }
         if (!Array.isArray(productsPayload) || !Array.isArray(recipesPayload)) {
-          throw new Error("No se pudo cargar inventario.");
+          throw new Error("Respuesta inválida del servidor al cargar inventario.");
         }
 
         const ingredients = productsPayload
@@ -370,13 +393,21 @@ export default function Menu({
         }
 
         setInventoryProducts([...merged.values()].sort((a, b) => a.name.localeCompare(b.name)));
-      })
-      .catch((error) => {
-        const message = error instanceof Error ? error.message : "No se pudo cargar inventario.";
-        setInventoryError(message);
-        setInventoryProducts([]);
-      })
-      .finally(() => setInventoryLoading(false));
+      } catch (error) {
+        if (!cancelled) {
+          const message =
+            error instanceof Error ? error.message : "No se pudo cargar inventario.";
+          setInventoryError(message);
+          setInventoryProducts([]);
+        }
+      } finally {
+        if (!cancelled) setInventoryLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [recipeModalItem, showCreate]);
 
   useEffect(() => {

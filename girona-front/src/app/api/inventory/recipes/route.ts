@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { forwardAuthHeadersFromRequest } from "../../personnel/_utils";
+
 type RecipeCreateBody = {
   name?: string;
   yield_quantity?: string | number;
@@ -54,13 +56,16 @@ function errorToJson(error: unknown) {
   return { message: String(error) };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const backendBaseUrl = getBackendBaseUrl();
   const backendUrl = new URL(toAbsoluteUrl(backendBaseUrl, "/inventory/recipes"));
 
   let response: Response;
   try {
-    response = await fetch(backendUrl.toString(), { cache: "no-store" });
+    response = await fetch(backendUrl.toString(), {
+      cache: "no-store",
+      headers: forwardAuthHeadersFromRequest(request),
+    });
   } catch (error) {
     return NextResponse.json(
       {
@@ -112,7 +117,10 @@ export async function POST(request: Request) {
   try {
     response = await fetch(url, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        ...forwardAuthHeadersFromRequest(request),
+      },
       body: JSON.stringify({
         name,
         yield_quantity: body.yield_quantity,

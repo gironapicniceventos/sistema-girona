@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { errorToJson, getBackendBaseUrl, safeJson, toAbsoluteUrl } from "../_utils";
+import { errorToJson, forwardAuthHeadersFromRequest, getBackendBaseUrl, safeJson, toAbsoluteUrl } from "../_utils";
 
 type WaiterCreateBody = {
   name?: string;
@@ -17,15 +17,11 @@ export async function GET(request: Request) {
   const active = requestUrl.searchParams.get("active");
   if (active) backendUrl.searchParams.set("active", active);
 
-  const authorization = request.headers.get("authorization")?.trim();
-  const forwardHeaders: HeadersInit = {};
-  if (authorization) forwardHeaders.Authorization = authorization;
-
   let response: Response;
   try {
     response = await fetch(backendUrl.toString(), {
       cache: "no-store",
-      headers: forwardHeaders,
+      headers: forwardAuthHeadersFromRequest(request),
     });
   } catch (error) {
     return NextResponse.json(
@@ -84,7 +80,10 @@ export async function POST(request: Request) {
     }
     response = await fetch(url, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        ...forwardAuthHeadersFromRequest(request),
+      },
       body: JSON.stringify(bodyJson),
     });
   } catch (error) {

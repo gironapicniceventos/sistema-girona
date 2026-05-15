@@ -69,3 +69,10 @@ export function formatApiErrorMessage(payload: unknown): string {
   }
   return "";
 }
+
+/** Reenvía el `Authorization` del navegador al backend (sesión Bearer). */
+export function forwardAuthHeadersFromRequest(request: Request): HeadersInit {
+  const authorization = request.headers.get("authorization")?.trim();
+  if (!authorization) return {};
+  return { authorization };
+}
