@@ -195,6 +195,8 @@ def create_staff_user(
     db_session.add(user)
     db_session.commit()
     db_session.refresh(user)
+    personnel.sync_waiter_links_for_staff_users(db_session)
+    db_session.commit()
     return _staff_user_dict(user)
 
 
@@ -233,6 +235,8 @@ def update_staff_user(
     db_session.add(user)
     db_session.commit()
     db_session.refresh(user)
+    personnel.sync_waiter_links_for_staff_users(db_session)
+    db_session.commit()
     return _staff_user_dict(user)
 
 
@@ -295,6 +299,8 @@ def signup(user: schemas.UserCreate, db: Session = Depends(db.get_db)):
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+    personnel.sync_waiter_links_for_staff_users(db)
+    db.commit()
     return {
         "id": new_user.id,
         "email": new_user.email,
