@@ -6,6 +6,7 @@ type WaiterCreateBody = {
   name?: string;
   gender?: string;
   is_active?: boolean;
+  user_id?: number | null;
 };
 
 export async function GET(request: Request) {
@@ -66,14 +67,18 @@ export async function POST(request: Request) {
 
   let response: Response;
   try {
-    response = await fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
+    const bodyJson: Record<string, unknown> = {
         name,
         gender,
         is_active: body.is_active ?? true,
-      }),
+    };
+    if (body.user_id !== undefined && body.user_id !== null) {
+      bodyJson.user_id = body.user_id;
+    }
+    response = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(bodyJson),
     });
   } catch (error) {
     return NextResponse.json(

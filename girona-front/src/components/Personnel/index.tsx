@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { readAuth } from "@/lib/auth/storage";
 import { SearchIcon } from "@/assets/icons";
 import { standardFormat } from "@/lib/format-number";
 
@@ -140,6 +141,7 @@ type Waiter = {
   name: string;
   gender?: string | null;
   is_active: boolean;
+  user_id?: number | null;
   created_at: string;
 };
 
@@ -286,6 +288,12 @@ export default function Personnel({ variant = "full" }: PersonnelProps) {
   const [supplierIngredientCatalogLoading, setSupplierIngredientCatalogLoading] = useState(false);
   const [supplierIngredientRows, setSupplierIngredientRows] = useState<SupplierIngredientRowState[]>([]);
 
+  const [waiterLinkUserId, setWaiterLinkUserId] = useState("");
+  const [staffLinkCandidates, setStaffLinkCandidates] = useState<
+    { id: number; email: string; name: string; role: string }[]
+  >([]);
+  const [staffLinkLoading, setStaffLinkLoading] = useState(false);
+
   const [togglingIds, setTogglingIds] = useState<Set<number>>(() => new Set());
   const [scrollSupplierProductsPending, setScrollSupplierProductsPending] = useState(false);
 
@@ -428,7 +436,46 @@ export default function Personnel({ variant = "full" }: PersonnelProps) {
     setSupplierDefaultWithholdingOp("purchase");
     setSupplierWithholdingPercentInput("");
     setSupplierIngredientRows([]);
+    setWaiterLinkUserId("");
   }
+
+  useEffect(() => {
+    if (!showForm || tab !== "waiters") return;
+    const auth = readAuth();
+    const token = auth?.accessToken;
+    if (!token) {
+      setStaffLinkCandidates([]);
+      return;
+    }
+    const authorization = `${auth?.tokenType || "Bearer"} ${token}`;
+    let cancelled = false;
+    setStaffLinkLoading(true);
+    void fetch("/api/auth/staff/waiter-link-candidates", {
+      headers: { authorization },
+      cache: "no-store",
+    })
+      .then(async (res) => {
+        const data = (await res.json().catch(() => null)) as unknown;
+        if (cancelled || !res.ok || !Array.isArray(data)) return;
+        setStaffLinkCandidates(
+          (data as { id: number; email: string; name: string; role: string }[]).map((u) => ({
+            id: u.id,
+            email: u.email,
+            name: u.name,
+            role: u.role,
+          })),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setStaffLinkCandidates([]);
+      })
+      .finally(() => {
+        if (!cancelled) setStaffLinkLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showForm, tab]);
 
   function closeDetails() {
     setDetailsOpen(false);
@@ -513,6 +560,15 @@ export default function Personnel({ variant = "full" }: PersonnelProps) {
       }
     } else {
       setSupplierIngredientRows([]);
+    }
+
+    if (tab === "waiters") {
+      const w = target as Waiter;
+      setWaiterLinkUserId(
+        w.user_id != null && w.user_id !== undefined ? String(w.user_id) : "",
+      );
+    } else {
+      setWaiterLinkUserId("");
     }
   }
 
@@ -660,6 +716,35 @@ export default function Personnel({ variant = "full" }: PersonnelProps) {
     if (tab === "customers") {
       payload.identity_document = documentInput.trim();
       payload.phone = phone ? phone : null;
+    }
+
+    if (tab === "waiters") {
+      const v = waiterLinkUserId.trim();
+      if (formMode === "edit") {
+        if (v === "") {
+          payload.user_id = null;
+        } else {
+          const n = Number(v);
+          if (!Number.isFinite(n) || n <= 0) {
+            setSubmitStatus({
+              kind: "error",
+              message: "Usuario vinculado invalido.",
+            });
+            return;
+          }
+          payload.user_id = n;
+        }
+      } else if (v !== "") {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n <= 0) {
+          setSubmitStatus({
+            kind: "error",
+            message: "Usuario vinculado invalido.",
+          });
+          return;
+        }
+        payload.user_id = n;
+      }
     }
 
     if (tab === "suppliers") {
@@ -1125,6 +1210,34 @@ export default function Personnel({ variant = "full" }: PersonnelProps) {
             ) : null}
 
           </div>
+
+          {tab === "waiters" ? (
+            <div className="mt-4 max-w-2xl">
+              <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
+                Usuario de acceso (cuenta que inicia sesión)
+              </label>
+              <select
+                value={waiterLinkUserId}
+                onChange={(e) => setWaiterLinkUserId(e.target.value)}
+                disabled={staffLinkLoading}
+                className="w-full rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white disabled:opacity-60"
+              >
+                <option value="">
+                  Sin vincular (se puede coincidir por nombre del perfil y esta ficha)
+                </option>
+                {staffLinkCandidates.map((u) => (
+                  <option key={u.id} value={String(u.id)}>
+                    {u.name} — {u.email}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-[11px] text-body-color dark:text-dark-6">
+                Al vincular, ese usuario no debe elegir mesero en el POS: se usa su ficha y el nombre
+                visible para el resto del personal. Solo gerente/administrador/dueño ven la lista de
+                cuentas.
+              </p>
+            </div>
+          ) : null}
 
           {tab === "suppliers" ? (
             <div

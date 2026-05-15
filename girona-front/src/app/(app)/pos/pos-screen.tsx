@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { FaRegTrashAlt } from "react-icons/fa";
 import { HiOutlineCash } from "react-icons/hi";
 import { RiDrinks2Fill, RiProhibited2Line, RiRestaurantLine } from "react-icons/ri";
+import { useSession } from "@/components/Auth/SessionContext";
 import { getPosCategoryIcon } from "@/lib/pos-menu-category-icons";
 import { formatApiErrorMessage } from "@/app/api/personnel/_utils";
 
@@ -203,6 +204,18 @@ function formatMoney(value: unknown) {
   }).format(num);
 }
 
+/** Importe de línea sin INC para pre-factura (el INC solo en el total del pie). */
+function preFacturaLineDisplayAmount(item: PosOrderOut["items"][number]): number {
+  const sub = Number(item.line_subtotal);
+  if (Number.isFinite(sub) && sub >= 0) return sub;
+  const total = Number(item.line_total);
+  const tax = Number(item.line_tax);
+  if (Number.isFinite(total) && Number.isFinite(tax) && tax > 0 && total >= tax) {
+    return Math.max(0, total - tax);
+  }
+  return Number.isFinite(total) ? Math.max(0, total) : 0;
+}
+
 function parseCopAmount(value: string) {
   const rawInput = value.trim();
   if (!rawInput) return 0;
@@ -224,12 +237,21 @@ function parseCopAmount(value: string) {
   return Math.max(0, parsed);
 }
 
-/** Precio de venta en COP. Los ítems en 0 se usan solo como receta (costo); no se venden en POS. */
+/** Precio de venta en COP tal como en carta / menú (incluye INC 8% si aplica al precio mostrado). */
 function menuItemSellPriceCop(price: string | number | null | undefined): number {
   if (typeof price === "number" && Number.isFinite(price)) {
     return Math.max(0, price);
   }
   return parseCopAmount(String(price ?? ""));
+}
+
+/**
+ * Base unitaria sin INC para líneas del pedido: precio_carta / (1 + INC).
+ * La grilla del menú en POS sigue usando menuItemSellPriceCop (precio carta).
+ */
+function posOrderNetUnitFromMenuGrossCop(grossCop: number): number {
+  if (!Number.isFinite(grossCop) || grossCop <= 0) return 0;
+  return Math.round(grossCop / (1 + INC_RATE));
 }
 
 function isPosOrderableMenuItem(item: MenuItem): boolean {
@@ -517,7 +539,7 @@ function buildPreFacturaPdf(
       doc.text(line, m, rowTop + 4 + i * 4.8);
     });
     doc.text(String(it.quantity), 130, rowTop + 4);
-    doc.text(formatMoney(it.line_total), pageW, rowTop + 4, { align: "right" });
+    doc.text(formatMoney(preFacturaLineDisplayAmount(it)), pageW, rowTop + 4, { align: "right" });
     y = rowTop + blockH + 2;
   }
 
@@ -719,6 +741,15 @@ function ViewOrderModal({
 }
 
 export default function PosScreen() {
+  const { me } = useSession();
+  const sessionWaiterId = me?.waiter_id ?? null;
+  const sessionWaiterDisplay =
+    (me?.waiter_name ?? "").trim() || (me?.name ?? "").trim() || null;
+  const autoWaiterRole =
+    me != null &&
+    ["mesero", "caja_mesero"].includes((me.role ?? "mesero").trim().toLowerCase());
+  const useAutoWaiter = autoWaiterRole && sessionWaiterId != null;
+
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [tables, setTables] = useState<PosTable[]>([]);
   const [orders, setOrders] = useState<PosOrderOut[]>([]);
@@ -1239,7 +1270,9 @@ export default function PosScreen() {
     setWaiterOrder(order);
     setWaiterModalOpen(true);
     resetWaiterForm();
-    loadWaiters();
+    if (order.waiter_id == null && !useAutoWaiter) {
+      void loadWaiters();
+    }
   }
 
   function closeWaiterModal() {
@@ -1286,12 +1319,23 @@ export default function PosScreen() {
     const hasWaiterOnOrder = waiterOrder.waiter_id != null;
     let waiterId: number | null = null;
     if (!hasWaiterOnOrder) {
-      const parsedId = Number(selectedWaiterId);
-      if (!Number.isFinite(parsedId) || parsedId <= 0) {
-        setWaiterStatus({ kind: "error", message: "Selecciona un mesero." });
+      if (useAutoWaiter && sessionWaiterId != null) {
+        waiterId = sessionWaiterId;
+      } else if (autoWaiterRole && sessionWaiterId == null) {
+        setWaiterStatus({
+          kind: "error",
+          message:
+            "Tu usuario no esta vinculado a una ficha de mesero. En Personal → Meseros, vinculá tu usuario o usa el mismo nombre que en tu perfil.",
+        });
         return;
+      } else {
+        const parsedId = Number(selectedWaiterId);
+        if (!Number.isFinite(parsedId) || parsedId <= 0) {
+          setWaiterStatus({ kind: "error", message: "Selecciona un mesero." });
+          return;
+        }
+        waiterId = parsedId;
       }
-      waiterId = parsedId;
     }
     const updated = await handleMarkOrderDelivered(waiterOrder.id, waiterId);
     if (!updated) return;
@@ -1344,7 +1388,7 @@ export default function PosScreen() {
         (it) => `<tr>
           <td style="padding:4px 8px;border:1px solid #ccc;">${escapeHtml(it.name)}</td>
           <td style="padding:4px 8px;border:1px solid #ccc;text-align:right;">${escapeHtml(String(it.quantity))}</td>
-          <td style="padding:4px 8px;border:1px solid #ccc;text-align:right;">${formatMoney(it.line_total)}</td>
+          <td style="padding:4px 8px;border:1px solid #ccc;text-align:right;">${formatMoney(preFacturaLineDisplayAmount(it))}</td>
         </tr>`,
       )
       .join("");
@@ -1601,7 +1645,8 @@ export default function PosScreen() {
     setCart((prev) => {
       const existing = prev[item.id];
       const nextQty = existing ? existing.quantity + 1 : 1;
-      const unitPrice = menuItemSellPriceCop(item.price);
+      const gross = menuItemSellPriceCop(item.price);
+      const unitPrice = posOrderNetUnitFromMenuGrossCop(gross);
       return {
         ...prev,
         [item.id]: {
@@ -1703,7 +1748,7 @@ export default function PosScreen() {
               : {
                   table_id: selectedTableId,
                   service_total: 0,
-                  waiter_id: null,
+                  waiter_id: useAutoWaiter && sessionWaiterId != null ? sessionWaiterId : null,
                   ...payloadBody,
                 },
           ),
@@ -2182,7 +2227,11 @@ export default function PosScreen() {
             <div className="flex items-start justify-between gap-2">
               <div>
                 <h3 className="text-lg font-semibold text-dark dark:text-white">
-                  {waiterOrder.waiter_id != null ? "Marcar entrega" : "Asignar mesero"}
+                  {waiterOrder.waiter_id != null
+                    ? "Marcar entrega"
+                    : useAutoWaiter
+                      ? "Confirmar entrega"
+                      : "Asignar mesero"}
                 </h3>
                 <p className="text-sm text-body-color dark:text-dark-6">
                   Pedido #{waiterOrder.id} · Mesa {getTableName(waiterOrder.table_id)}
@@ -2202,7 +2251,7 @@ export default function PosScreen() {
             </div>
 
             <div className="mt-4 space-y-3">
-              {waiterOrder.waiter_id == null ? (
+              {waiterOrder.waiter_id == null && !useAutoWaiter ? (
                 <div>
                   <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
                     Selecciona mesero
@@ -2221,6 +2270,16 @@ export default function PosScreen() {
                     ))}
                   </select>
                 </div>
+              ) : null}
+              {waiterOrder.waiter_id == null && useAutoWaiter && sessionWaiterDisplay ? (
+                <p className="rounded-md border border-stroke bg-gray-2 px-3 py-2 text-sm text-dark dark:border-dark-3 dark:bg-dark-2 dark:text-white">
+                  Mesero: <span className="font-semibold">{sessionWaiterDisplay}</span>
+                  {me?.email ? (
+                    <span className="mt-1 block text-[11px] font-normal text-body-color dark:text-dark-6">
+                      Sesión: {me.email}
+                    </span>
+                  ) : null}
+                </p>
               ) : null}
               <div className="flex flex-wrap justify-between gap-2">
                 <button
@@ -2420,7 +2479,7 @@ export default function PosScreen() {
                           <TableCell className="text-sm">{it.name}</TableCell>
                           <TableCell className="text-right text-sm">{it.quantity}</TableCell>
                           <TableCell className="text-right text-sm font-medium">
-                            {formatMoney(it.line_total)}
+                            {formatMoney(preFacturaLineDisplayAmount(it))}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -3011,7 +3070,7 @@ export default function PosScreen() {
                           </label>
                         </div>
                         <div className="mt-2 text-xs text-body-color dark:text-dark-6">
-                          Total línea:{" "}
+                          Total línea (base sin INC):{" "}
                           {formatMoney(
                             ci.courtesy
                               ? 0
@@ -3022,7 +3081,7 @@ export default function PosScreen() {
                                         Math.max(0, ci.discount_rate ?? 0),
                                       ),
                                     0,
-                                  ) * (1 + (ci.tax_rate ?? 0)),
+                                  ),
                           )}
                         </div>
                         <div className="mt-2">
@@ -3046,6 +3105,9 @@ export default function PosScreen() {
               </div>
 
               <div className="mt-4 space-y-1 text-sm text-dark dark:text-white">
+                <p className="text-[11px] text-body-color dark:text-dark-6">
+                  Precios en comanda: base sin INC (8%). La carta del POS sigue mostrando el precio al cliente; el INC se suma al cobrar.
+                </p>
                 <div className="flex items-center justify-between">
                   <span>Subtotal</span>
                   <span>{formatMoney(cartTotals.subtotal)}</span>

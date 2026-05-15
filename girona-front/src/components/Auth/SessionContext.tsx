@@ -16,6 +16,8 @@ export type SessionUser = {
   name: string;
   profile_photo_url: string;
   role: string;
+  waiter_id: number | null;
+  waiter_name: string | null;
 };
 
 type SessionContextValue = {
@@ -58,6 +60,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           name?: string;
           profile_photo_url?: string;
           role?: string;
+          waiter_id?: number | null;
+          waiter_name?: string | null;
         }
       | null;
     if (!payload?.email) {
@@ -71,6 +75,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       name: payload.name || "Usuario",
       profile_photo_url: payload.profile_photo_url || "/backgrounds/default.jpg",
       role: typeof payload.role === "string" ? payload.role : "mesero",
+      waiter_id:
+        typeof payload.waiter_id === "number" && Number.isFinite(payload.waiter_id)
+          ? payload.waiter_id
+          : null,
+      waiter_name:
+        typeof payload.waiter_name === "string" && payload.waiter_name.trim()
+          ? payload.waiter_name.trim()
+          : null,
     };
     setMe(user);
     setLoading(false);

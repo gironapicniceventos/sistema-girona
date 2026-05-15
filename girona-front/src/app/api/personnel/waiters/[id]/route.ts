@@ -6,6 +6,7 @@ type WaiterUpdateBody = {
   name?: string;
   gender?: string;
   is_active?: boolean;
+  user_id?: number | null;
 };
 
 export async function PUT(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -25,6 +26,7 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
   if (body.name !== undefined) payloadToSend.name = body.name;
   if (body.gender !== undefined) payloadToSend.gender = body.gender;
   if (body.is_active !== undefined) payloadToSend.is_active = body.is_active;
+  if (body.user_id !== undefined) payloadToSend.user_id = body.user_id;
 
   let response: Response;
   try {

@@ -266,6 +266,12 @@ def _auto_migrate_schema() -> None:
             )
             conn.execute(
                 text(
+                    "ALTER TABLE IF EXISTS waiters "
+                    "ADD COLUMN IF NOT EXISTS user_id INTEGER"
+                )
+            )
+            conn.execute(
+                text(
                     "ALTER TABLE IF EXISTS customers "
                     "ADD COLUMN IF NOT EXISTS gender VARCHAR NOT NULL DEFAULT 'male'"
                 )

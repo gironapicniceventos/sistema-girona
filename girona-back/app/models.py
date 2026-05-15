@@ -248,8 +248,10 @@ class Waiter(Base):
     name = Column(String, nullable=False, index=True)
     gender = Column(String, nullable=False, default="male")
     is_active = Column(Boolean, default=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, unique=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
+    user = relationship("User", backref="linked_waiter", uselist=False)
     orders = relationship("PosOrder", back_populates="waiter")
     sales = relationship("Sale", back_populates="waiter")
 

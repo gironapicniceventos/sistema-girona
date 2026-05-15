@@ -3,7 +3,7 @@ import os
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
-from . import db, models, schemas, security
+from . import db, models, personnel, schemas, security
 
 router = APIRouter(prefix="/auth")
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -93,6 +93,31 @@ def get_current_user(
     return _ensure_profile_defaults(db_user, db_session)
 
 
+def require_gerente_admin_or_owner(
+    current_user: models.User = Depends(get_current_user),
+) -> models.User:
+    role = (current_user.role or "").strip().lower()
+    if role not in {"full_access", "admin", "gerente"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Sin permiso para esta accion",
+        )
+    return current_user
+
+
+def _user_profile_payload(db_session: Session, user: models.User) -> dict:
+    wid, wname = personnel.resolve_waiter_for_staff_user(db_session, user)
+    return {
+        "id": user.id,
+        "email": user.email,
+        "name": user.full_name or DEFAULT_PROFILE_NAME,
+        "profile_photo_url": user.profile_photo_url or DEFAULT_PROFILE_PHOTO_URL,
+        "role": user.role or "mesero",
+        "waiter_id": wid,
+        "waiter_name": wname,
+    }
+
+
 def require_owner(current_user: models.User = Depends(get_current_user)) -> models.User:
     role = (current_user.role or "").strip()
     if role != "full_access":
@@ -120,6 +145,23 @@ def list_staff_users(
 ):
     rows = (
         db_session.query(models.User)
+        .order_by(models.User.email.asc())
+        .all()
+    )
+    return [_staff_user_dict(u) for u in rows]
+
+
+@router.get(
+    "/staff/waiter-link-candidates",
+    response_model=list[schemas.StaffUserOut],
+)
+def list_waiter_link_candidates(
+    db_session: Session = Depends(db.get_db),
+    _: models.User = Depends(require_gerente_admin_or_owner),
+):
+    rows = (
+        db_session.query(models.User)
+        .filter(models.User.is_active == True)  # noqa: E712
         .order_by(models.User.email.asc())
         .all()
     )
@@ -274,14 +316,11 @@ def login(user: schemas.UserCreate, db: Session = Depends(db.get_db)):
 
 
 @router.get("/me", response_model=schemas.UserProfileOut)
-def get_me(current_user: models.User = Depends(get_current_user)):
-    return {
-        "id": current_user.id,
-        "email": current_user.email,
-        "name": current_user.full_name or DEFAULT_PROFILE_NAME,
-        "profile_photo_url": current_user.profile_photo_url or DEFAULT_PROFILE_PHOTO_URL,
-        "role": current_user.role or "mesero",
-    }
+def get_me(
+    current_user: models.User = Depends(get_current_user),
+    db_session: Session = Depends(db.get_db),
+):
+    return _user_profile_payload(db_session, current_user)
 
 
 @router.put("/me", response_model=schemas.UserProfileOut)
@@ -300,13 +339,7 @@ def update_me(
     db_session.commit()
     db_session.refresh(current_user)
 
-    return {
-        "id": current_user.id,
-        "email": current_user.email,
-        "name": current_user.full_name or DEFAULT_PROFILE_NAME,
-        "profile_photo_url": current_user.profile_photo_url or DEFAULT_PROFILE_PHOTO_URL,
-        "role": current_user.role or "mesero",
-    }
+    return _user_profile_payload(db_session, current_user)
 
 
 @router.post("/me/password", response_model=schemas.UserProfileOut)
@@ -333,10 +366,4 @@ def change_password(
     db_session.commit()
     db_session.refresh(current_user)
 
-    return {
-        "id": current_user.id,
-        "email": current_user.email,
-        "name": current_user.full_name or DEFAULT_PROFILE_NAME,
-        "profile_photo_url": current_user.profile_photo_url or DEFAULT_PROFILE_PHOTO_URL,
-        "role": current_user.role or "mesero",
-    }
+    return _user_profile_payload(db_session, current_user)

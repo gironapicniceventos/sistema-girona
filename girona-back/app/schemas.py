@@ -25,6 +25,8 @@ class UserProfileOut(BaseModel):
     name: str
     profile_photo_url: str
     role: str = "mesero"
+    waiter_id: int | None = None
+    waiter_name: str | None = None
 
 
 class UserProfileUpdate(BaseModel):
@@ -641,12 +643,14 @@ class WaiterCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     gender: str = Field(default="male", max_length=20)
     is_active: bool = True
+    user_id: int | None = None
 
 
 class WaiterUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     gender: str | None = Field(default=None, max_length=20)
     is_active: bool | None = None
+    user_id: int | None = None
 
 
 class WaiterOut(BaseModel):
@@ -654,6 +658,7 @@ class WaiterOut(BaseModel):
     name: str
     gender: str
     is_active: bool
+    user_id: int | None = None
     created_at: datetime
 
     class Config:

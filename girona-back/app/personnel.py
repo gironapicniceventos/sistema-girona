@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import unicodedata
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -8,9 +10,73 @@ from . import db, models, schemas
 
 router = APIRouter(prefix="/personnel", tags=["personnel"])
 
+WAITER_ROLES = frozenset({"mesero", "caja_mesero"})
+
 
 def _norm(value: str) -> str:
     return value.strip().lower()
+
+
+def _norm_name_for_match(value: str) -> str:
+    """Compara nombres ignorando mayúsculas, espacios extremos y tildes."""
+    s = (value or "").strip().lower()
+    return "".join(
+        c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn"
+    )
+
+
+def resolve_waiter_for_staff_user(
+    db_session: Session, user: models.User
+) -> tuple[int | None, str | None]:
+    """
+    Devuelve (waiter_id, nombre en ficha mesero) para POS: vínculo user_id o un único mesero
+    activo con el mismo nombre que el perfil.
+    """
+    linked = (
+        db_session.query(models.Waiter)
+        .filter(
+            models.Waiter.user_id == user.id,
+            models.Waiter.is_active == True,  # noqa: E712
+        )
+        .first()
+    )
+    if linked:
+        return linked.id, linked.name
+
+    if (user.role or "").strip().lower() not in WAITER_ROLES:
+        return None, None
+
+    key = _norm_name_for_match(user.full_name or "")
+    if not key:
+        return None, None
+
+    candidates = [
+        w
+        for w in db_session.query(models.Waiter)
+        .filter(models.Waiter.is_active == True)  # noqa: E712
+        .all()
+        if _norm_name_for_match(w.name) == key
+    ]
+    if len(candidates) == 1:
+        w = candidates[0]
+        return w.id, w.name
+    return None, None
+
+
+def _ensure_user_available_for_waiter(
+    db_session: Session, user_id: int, *, exclude_waiter_id: int | None
+) -> None:
+    user = db_session.get(models.User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    q = db_session.query(models.Waiter).filter(models.Waiter.user_id == user_id)
+    if exclude_waiter_id is not None:
+        q = q.filter(models.Waiter.id != exclude_waiter_id)
+    if q.first():
+        raise HTTPException(
+            status_code=409,
+            detail="Ese usuario ya esta vinculado a otra ficha de mesero",
+        )
 
 
 def _supplier_or_404(db_session: Session, supplier_id: int) -> models.Supplier:
@@ -209,10 +275,15 @@ def create_waiter(payload: schemas.WaiterCreate, db_session: Session = Depends(d
     if existing:
         raise HTTPException(status_code=409, detail="Mesero ya existe")
 
+    user_id: int | None = payload.user_id
+    if user_id is not None:
+        _ensure_user_available_for_waiter(db_session, user_id, exclude_waiter_id=None)
+
     waiter = models.Waiter(
         name=name,
         gender=payload.gender.strip() if payload.gender else "male",
         is_active=payload.is_active,
+        user_id=user_id,
     )
     db_session.add(waiter)
     db_session.commit()
@@ -241,7 +312,7 @@ def update_waiter(
 ):
     waiter = _waiter_or_404(db_session, waiter_id)
 
-    data = payload.dict(exclude_unset=True)
+    data = payload.model_dump(exclude_unset=True)
     if "name" in data and data["name"] is not None:
         candidate = data["name"].strip()
         existing = (
@@ -257,6 +328,12 @@ def update_waiter(
         data["name"] = candidate
     if "gender" in data and data["gender"] is not None:
         data["gender"] = data["gender"].strip() or "male"
+    if "user_id" in data:
+        uid = data["user_id"]
+        if uid is not None:
+            _ensure_user_available_for_waiter(
+                db_session, int(uid), exclude_waiter_id=waiter.id
+            )
 
     for key, value in data.items():
         setattr(waiter, key, value)
