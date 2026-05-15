@@ -1,10 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { readAuth } from "@/lib/auth/storage";
 import { SearchIcon } from "@/assets/icons";
+import Inventory from "@/components/Inventory";
 import { standardFormat } from "@/lib/format-number";
 
 type TabKey = "customers" | "suppliers" | "waiters";
@@ -297,6 +297,12 @@ export default function Personnel({ variant = "full" }: PersonnelProps) {
   const [togglingIds, setTogglingIds] = useState<Set<number>>(() => new Set());
   const [scrollSupplierProductsPending, setScrollSupplierProductsPending] = useState(false);
 
+  const [addPurchaseModal, setAddPurchaseModal] = useState<
+    | null
+    | { step: "pick"; supplierId: string }
+    | { step: "form"; supplierId: string }
+  >(null);
+
   const filteredSuppliers = useMemo(() => {
     const term = normalizeSearchText(searchTerm);
     if (!term) return suppliers;
@@ -320,6 +326,10 @@ export default function Personnel({ variant = "full" }: PersonnelProps) {
       normalizeSearchText(waiter.name ?? "").includes(term),
     );
   }, [waiters, searchTerm]);
+
+  const purchaseModalSuppliers = useMemo(() => {
+    return [...suppliers].filter((s) => s.is_active).sort((a, b) => a.name.localeCompare(b.name));
+  }, [suppliers]);
 
   useEffect(() => {
     loadCurrentTab();
@@ -1060,12 +1070,13 @@ export default function Personnel({ variant = "full" }: PersonnelProps) {
             Agregar {currentSingular}
           </button>
           {variant === "suppliersOnly" ? (
-            <Link
-              href="/inventory?nuevaCompra=1"
+            <button
+              type="button"
+              onClick={() => setAddPurchaseModal({ step: "pick", supplierId: "" })}
               className="inline-flex items-center justify-center rounded-md border border-stroke bg-white px-4 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:bg-gray-dark dark:text-white dark:hover:bg-dark-2"
             >
               Agregar compra
-            </Link>
+            </button>
           ) : null}
         </div>
       </div>
@@ -1968,6 +1979,112 @@ export default function Personnel({ variant = "full" }: PersonnelProps) {
           </div>
         )}
       </div>
+
+      {addPurchaseModal ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 opacity-0 animate-[fadeIn_160ms_ease-out_forwards]"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="add-purchase-modal-title"
+          onClick={() => setAddPurchaseModal(null)}
+        >
+          <div
+            className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-stroke bg-white p-5 shadow-2xl opacity-0 animate-[fadeIn_200ms_ease-out_60ms_forwards] dark:border-dark-3 dark:bg-gray-dark"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <h3
+                id="add-purchase-modal-title"
+                className="text-base font-semibold text-dark dark:text-white"
+              >
+                Registrar compra
+              </h3>
+              <button
+                type="button"
+                onClick={() => setAddPurchaseModal(null)}
+                className="rounded-xl border border-stroke bg-gray-1 px-3 py-2 text-sm font-semibold text-dark transition hover:bg-gray-2 dark:border-dark-3 dark:bg-white/5 dark:text-white"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            {addPurchaseModal.step === "pick" ? (
+              <div className="space-y-4">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-body-color dark:text-dark-6">
+                    Proveedor
+                  </label>
+                  <select
+                    value={addPurchaseModal.supplierId}
+                    onChange={(e) =>
+                      setAddPurchaseModal({ step: "pick", supplierId: e.target.value })
+                    }
+                    className="w-full max-w-md rounded-md border border-stroke bg-white px-3 py-2 text-sm text-dark outline-none focus:border-primary dark:border-dark-3 dark:bg-gray-dark dark:text-white"
+                  >
+                    <option value="">Elegí un proveedor…</option>
+                    {purchaseModalSuppliers.map((s) => (
+                      <option key={s.id} value={String(s.id)}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                  {purchaseModalSuppliers.length === 0 ? (
+                    <p className="mt-2 text-sm text-body-color dark:text-dark-6">
+                      No hay proveedores activos. Agregá o activá un proveedor primero.
+                    </p>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAddPurchaseModal(null)}
+                    className="rounded-md border border-stroke bg-white px-4 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:bg-gray-dark dark:text-white dark:hover:bg-dark-2"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!addPurchaseModal.supplierId.trim()}
+                    onClick={() => {
+                      const id = addPurchaseModal.supplierId.trim();
+                      if (!id) return;
+                      setAddPurchaseModal({ step: "form", supplierId: id });
+                    }}
+                    className="rounded-md bg-dark px-4 py-2 text-sm font-medium text-white hover:bg-dark/90 disabled:opacity-50 dark:bg-white dark:text-dark dark:hover:bg-white/90"
+                  >
+                    Continuar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setAddPurchaseModal({
+                      step: "pick",
+                      supplierId: addPurchaseModal.supplierId,
+                    })
+                  }
+                  className="text-sm font-medium text-primary hover:underline"
+                >
+                  ← Cambiar proveedor
+                </button>
+                <Inventory
+                  key={addPurchaseModal.supplierId}
+                  purchaseOnly
+                  purchasePresetSupplierId={addPurchaseModal.supplierId}
+                  onPurchaseRegistered={() => {
+                    setAddPurchaseModal(null);
+                    void loadCurrentTab();
+                  }}
+                  onPurchaseCancel={() => setAddPurchaseModal(null)}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
 
       {detailsOpen ? (
         <div

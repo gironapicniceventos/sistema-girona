@@ -42,6 +42,7 @@ type RecipeItem = {
     name: string;
     unit: string | null;
     quantity: string;
+    product_id?: number | null;
   }>;
 };
 
@@ -132,6 +133,13 @@ type PurchaseItemRow = {
   iva_rate: string;
 };
 
+export type InventoryProps = {
+  purchaseOnly?: boolean;
+  purchasePresetSupplierId?: string;
+  onPurchaseRegistered?: () => void;
+  onPurchaseCancel?: () => void;
+};
+
 type RecipeIngredientRow = {
   name: string;
   unit: string;
@@ -182,6 +190,14 @@ function formatRecipeCatalogIngredientBadge(ingredient: {
     return "Texto";
   }
   return `${formatQtyPlain(ingredient.quantity)} ${unitAbbr}`.trim();
+}
+
+function normalizeRecipeQty(value: string) {
+  const t = value.trim().replace(",", ".");
+  if (!t) return "";
+  const n = Number.parseFloat(t);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  return String(n);
 }
 
 function normalizeIntegerInput(value: string | number | null | undefined) {
@@ -440,7 +456,12 @@ function IngredientSearchField({
   );
 }
 
-export default function Inventory() {
+export default function Inventory({
+  purchaseOnly = false,
+  purchasePresetSupplierId = "",
+  onPurchaseRegistered,
+  onPurchaseCancel,
+}: InventoryProps = {}) {
   const [tab, setTab] = useState<InventoryKind>("ingredient");
   const [products, setProducts] = useState<InventoryProduct[]>([]);
   const [recipes, setRecipes] = useState<RecipeItem[]>([]);
@@ -593,6 +614,9 @@ export default function Inventory() {
   }, [tab]);
 
   useEffect(() => {
+    if (purchaseOnly) {
+      return;
+    }
     setShowCreate(false);
     setShowEdit(false);
     setShowRecipeCreate(false);
@@ -602,6 +626,9 @@ export default function Inventory() {
   }, [tab]);
 
   useEffect(() => {
+    if (purchaseOnly) {
+      return;
+    }
     if (searchParams.get("nuevaCompra") !== "1") {
       purchaseUrlHandledRef.current = false;
       return;
@@ -647,6 +674,38 @@ export default function Inventory() {
 
     router.replace(pathname || "/inventory", { scroll: false });
   }, [tab, openPurchaseFromUrl, router, pathname]);
+
+  useEffect(() => {
+    if (!purchaseOnly) {
+      return;
+    }
+    if (tab === "recipe") {
+      setTab("ingredient");
+      return;
+    }
+    void loadSuppliers();
+    void loadProducts(tab);
+    setShowCreate(true);
+    setShowEdit(false);
+    setEditingId(null);
+    setSubmitStatus({ kind: "idle" });
+    const sup = purchasePresetSupplierId.trim();
+    const defaultUnit = tab === "ingredient" ? "gramos" : "";
+    setPurchaseItems([
+      {
+        mode: "existing",
+        product_id: "",
+        product_name: "",
+        unit: defaultUnit,
+        supplier_id: sup,
+        quantity: "",
+        total_cost: "",
+        iva_rate: "0.19",
+      },
+    ]);
+    purchaseSupplierHoldSyncRef.current = null;
+    setPurchaseWithholdingOp("purchase");
+  }, [purchaseOnly, tab, purchasePresetSupplierId]);
 
   const viewTitle =
     tab === "ingredient"
@@ -931,8 +990,10 @@ export default function Inventory() {
         recipe.ingredients.map((item) => ({
           name: item.name ?? "",
           unit: formatUnitAbbr(item.unit) || defaultRecipeUnitForName(item.name ?? ""),
-          quantity: normalizeIntegerInput(item.quantity ?? ""),
-          productId: null,
+          quantity:
+            normalizeRecipeQty(String(item.quantity ?? "")) ||
+            normalizeIntegerInput(item.quantity ?? ""),
+          productId: typeof item.product_id === "number" ? item.product_id : null,
         })),
       );
     } else {
@@ -945,6 +1006,7 @@ export default function Inventory() {
         setIngredientCache(list);
         setRecipeIngredients((rows) =>
           rows.map((row) => {
+            if (row.productId != null) return row;
             const found = list.find(
               (p) => p.name.trim().toLowerCase() === row.name.trim().toLowerCase(),
             );
@@ -1129,6 +1191,9 @@ export default function Inventory() {
       setSubmitStatus({ kind: "success", message: "Compra registrada." });
       resetPurchaseForm();
       loadProducts(tab);
+      if (purchaseOnly) {
+        onPurchaseRegistered?.();
+      }
     } catch {
       setSubmitStatus({
         kind: "error",
@@ -1146,10 +1211,22 @@ export default function Inventory() {
       return;
     }
 
-    const yieldQty = normalizeIntegerInput(recipeYieldInput);
+    const yieldQty = normalizeRecipeQty(recipeYieldInput) || normalizeIntegerInput(recipeYieldInput);
     if (!yieldQty) {
-      setSubmitStatus({ kind: "error", message: "Rinde es requerido." });
+      setSubmitStatus({ kind: "error", message: "Rinde es requerido (número mayor a 0)." });
       return;
+    }
+
+    for (let i = 0; i < recipeIngredients.length; i += 1) {
+      const row = recipeIngredients[i];
+      if (!row.name.trim() && !row.quantity.trim()) continue;
+      if (!row.productId || !Number.isFinite(row.productId)) {
+        setSubmitStatus({
+          kind: "error",
+          message: `En la fila ${i + 1}, elegí el ingrediente con el buscador (debe quedar vinculado al inventario).`,
+        });
+        return;
+      }
     }
 
     const cleanedIngredients = recipeIngredients
@@ -1157,10 +1234,13 @@ export default function Inventory() {
         const name = item.name.trim();
         const unitRaw = item.unit.trim().toUpperCase();
         const unit = unitRaw || defaultRecipeUnitForName(name);
+        const qty =
+          normalizeRecipeQty(item.quantity) || normalizeIntegerInput(item.quantity);
         return {
           name,
           unit: unit || undefined,
-          quantity: normalizeIntegerInput(item.quantity),
+          quantity: qty,
+          product_id: item.productId ?? undefined,
         };
       })
       .filter((item) => item.name || item.quantity);
@@ -1178,6 +1258,13 @@ export default function Inventory() {
         setSubmitStatus({
           kind: "error",
           message: "Cada ingrediente debe tener nombre y cantidad.",
+        });
+        return;
+      }
+      if (!item.product_id) {
+        setSubmitStatus({
+          kind: "error",
+          message: "Cada ingrediente debe estar vinculado al inventario (usá el buscador).",
         });
         return;
       }
@@ -1338,111 +1425,8 @@ export default function Inventory() {
     }
   }
 
-  return (
-    <div className="rounded-[10px] bg-white p-6 shadow-1 dark:bg-gray-dark dark:shadow-card">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-semibold text-dark dark:text-white">{viewTitle}</h2>
-          <p className="text-sm text-body-color dark:text-dark-6">{viewHint}</p>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          {tab !== "recipe" || recipeListScope === "inventory" ? (
-            <button
-              type="button"
-              onClick={() => {
-                if (tab === "recipe") {
-                  openRecipeCreate();
-                } else {
-                  openCreate();
-                }
-              }}
-              className="rounded-md bg-dark px-4 py-2 text-sm font-medium text-white hover:bg-dark/90 dark:bg-white dark:text-dark dark:hover:bg-white/90"
-            >
-              {tab === "recipe"
-                ? "Agregar receta"
-                : tab === "ingredient"
-                  ? "Agregar Ingrediente"
-                  : "Agregar compra"}
-            </button>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="mb-4 flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => setTab("ingredient")}
-          className={
-            tab === "ingredient"
-              ? "rounded-md bg-primary px-3 py-2 text-sm font-medium text-white"
-              : "rounded-md border border-stroke px-3 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
-          }
-        >
-          Ingredientes
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("material")}
-          className={
-            tab === "material"
-              ? "rounded-md bg-primary px-3 py-2 text-sm font-medium text-white"
-              : "rounded-md border border-stroke px-3 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
-          }
-        >
-          Inventario Mobiliario
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("recipe")}
-          className={
-            tab === "recipe"
-              ? "rounded-md bg-primary px-3 py-2 text-sm font-medium text-white"
-              : "rounded-md border border-stroke px-3 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
-          }
-        >
-          Recetas
-        </button>
-        <div className="relative ml-auto w-full max-w-xs">
-          <input
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Buscar items..."
-            className="w-full rounded-md border-2 border-primary/40 bg-white py-2 pl-11 pr-3 text-sm text-dark shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-dark-3 dark:bg-gray-dark dark:text-white"
-          />
-          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-primary" />
-        </div>
-      </div>
-
-      {tab === "recipe" ? (
-        <div className="mb-4 flex flex-wrap gap-2 border-b border-stroke pb-4 dark:border-dark-3">
-          <button
-            type="button"
-            onClick={() => setRecipeListScope("inventory")}
-            className={
-              recipeListScope === "inventory"
-                ? "rounded-md bg-primary px-3 py-2 text-sm font-medium text-white"
-                : "rounded-md border border-stroke px-3 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
-            }
-          >
-            Recetas de inventario
-          </button>
-          <button
-            type="button"
-            onClick={() => setRecipeListScope("menu")}
-            className={
-              recipeListScope === "menu"
-                ? "rounded-md bg-primary px-3 py-2 text-sm font-medium text-white"
-                : "rounded-md border border-stroke px-3 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
-            }
-          >
-            Menú restaurante y bar
-          </button>
-        </div>
-      ) : null}
-
-      {showCreate ? (
-        <div className="mb-6 rounded-md border border-stroke bg-gray-1 p-4 dark:border-dark-3 dark:bg-dark-2">
+  const purchaseFormSection = showCreate ? (
+    <div className="mb-6 rounded-md border border-stroke bg-gray-1 p-4 dark:border-dark-3 dark:bg-dark-2">
             <div className="mt-4">
             <div className="mb-2 text-sm font-semibold text-dark dark:text-white">
               Productos comprados
@@ -1721,6 +1705,10 @@ export default function Inventory() {
               <button
                 type="button"
                 onClick={() => {
+                  if (purchaseOnly) {
+                    onPurchaseCancel?.();
+                    return;
+                  }
                   setShowCreate(false);
                   setSubmitStatus({ kind: "idle" });
                 }}
@@ -1738,8 +1726,152 @@ export default function Inventory() {
               </button>
             </div>
           </div>
+    </div>
+  ) : null;
+
+  if (purchaseOnly) {
+    return (
+      <div className="rounded-[10px] bg-white p-6 shadow-1 dark:bg-gray-dark dark:shadow-card">
+        <div className="mb-4">
+          <h2 className="text-xl font-semibold text-dark dark:text-white">Registrar compra</h2>
+          <p className="text-sm text-body-color dark:text-dark-6">
+            Elegí si afectás ingredientes o mobiliario. Las líneas traen el proveedor que elegiste en
+            Compras — podés cambiarlo por fila si corresponde.
+          </p>
+        </div>
+        <div className="mb-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setTab("ingredient")}
+            className={
+              tab === "ingredient"
+                ? "rounded-md bg-primary px-3 py-2 text-sm font-medium text-white"
+                : "rounded-md border border-stroke px-3 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
+            }
+          >
+            Ingredientes
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("material")}
+            className={
+              tab === "material"
+                ? "rounded-md bg-primary px-3 py-2 text-sm font-medium text-white"
+                : "rounded-md border border-stroke px-3 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
+            }
+          >
+            Inventario mobiliario
+          </button>
+        </div>
+        {purchaseFormSection}
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-[10px] bg-white p-6 shadow-1 dark:bg-gray-dark dark:shadow-card">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold text-dark dark:text-white">{viewTitle}</h2>
+          <p className="text-sm text-body-color dark:text-dark-6">{viewHint}</p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {tab !== "recipe" || recipeListScope === "inventory" ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (tab === "recipe") {
+                  openRecipeCreate();
+                } else {
+                  openCreate();
+                }
+              }}
+              className="rounded-md bg-dark px-4 py-2 text-sm font-medium text-white hover:bg-dark/90 dark:bg-white dark:text-dark dark:hover:bg-white/90"
+            >
+              {tab === "recipe"
+                ? "Agregar receta"
+                : tab === "ingredient"
+                  ? "Agregar Ingrediente"
+                  : "Agregar compra"}
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mb-4 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setTab("ingredient")}
+          className={
+            tab === "ingredient"
+              ? "rounded-md bg-primary px-3 py-2 text-sm font-medium text-white"
+              : "rounded-md border border-stroke px-3 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
+          }
+        >
+          Ingredientes
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("material")}
+          className={
+            tab === "material"
+              ? "rounded-md bg-primary px-3 py-2 text-sm font-medium text-white"
+              : "rounded-md border border-stroke px-3 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
+          }
+        >
+          Inventario Mobiliario
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("recipe")}
+          className={
+            tab === "recipe"
+              ? "rounded-md bg-primary px-3 py-2 text-sm font-medium text-white"
+              : "rounded-md border border-stroke px-3 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
+          }
+        >
+          Recetas
+        </button>
+        <div className="relative ml-auto w-full max-w-xs">
+          <input
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Buscar items..."
+            className="w-full rounded-md border-2 border-primary/40 bg-white py-2 pl-11 pr-3 text-sm text-dark shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-dark-3 dark:bg-gray-dark dark:text-white"
+          />
+          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-primary" />
+        </div>
+      </div>
+
+      {tab === "recipe" ? (
+        <div className="mb-4 flex flex-wrap gap-2 border-b border-stroke pb-4 dark:border-dark-3">
+          <button
+            type="button"
+            onClick={() => setRecipeListScope("inventory")}
+            className={
+              recipeListScope === "inventory"
+                ? "rounded-md bg-primary px-3 py-2 text-sm font-medium text-white"
+                : "rounded-md border border-stroke px-3 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
+            }
+          >
+            Recetas de inventario
+          </button>
+          <button
+            type="button"
+            onClick={() => setRecipeListScope("menu")}
+            className={
+              recipeListScope === "menu"
+                ? "rounded-md bg-primary px-3 py-2 text-sm font-medium text-white"
+                : "rounded-md border border-stroke px-3 py-2 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
+            }
+          >
+            Menú restaurante y bar
+          </button>
         </div>
       ) : null}
+
+      {purchaseFormSection}
 
       {showRecipeCreate && !editingRecipeId && recipeListScope === "inventory" ? (
         <div className="mb-6 rounded-md border border-stroke bg-gray-1 p-4 dark:border-dark-3 dark:bg-dark-2">

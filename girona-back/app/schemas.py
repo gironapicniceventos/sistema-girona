@@ -279,6 +279,8 @@ class RecipeIngredientCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     unit: str | None = Field(default=None, max_length=5)
     quantity: Decimal = Field(gt=0, description="Cantidad por lote (rendimiento)")
+    product_id: int | None = None
+    waste_pct: Decimal = Field(default=Decimal("0"), ge=0)
 
 
 class ReservationCreate(BaseModel):
@@ -322,6 +324,7 @@ class RecipeIngredientOut(BaseModel):
     name: str
     unit: str | None
     quantity: Decimal
+    product_id: int | None = None
 
 
 class RecipeCatalogOut(BaseModel):

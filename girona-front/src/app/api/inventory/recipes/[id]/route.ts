@@ -8,6 +8,8 @@ type RecipeUpdateBody = {
     name?: string;
     unit?: string;
     quantity?: string | number;
+    product_id?: number;
+    waste_pct?: string | number;
   }>;
   notes?: string | null;
 };

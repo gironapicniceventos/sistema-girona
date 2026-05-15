@@ -39,6 +39,74 @@ def _find_product_by_name(
     return query.first()
 
 
+def _inventory_unit_to_recipe_abbr(unit: str | None) -> str | None:
+    if unit is None:
+        return None
+    u = unit.strip().lower()
+    if not u:
+        return None
+    if "gramo" in u or u in {"gr", "g"}:
+        return "GR"
+    if "mililit" in u or u in {"ml"}:
+        return "ML"
+    if "unidad" in u:
+        return "UND"
+    return None
+
+
+def _catalog_ingredients_from_line_items(recipe: models.Recipe) -> list[schemas.RecipeIngredientOut]:
+    out: list[schemas.RecipeIngredientOut] = []
+    for ri in recipe.items:
+        if ri.product is None:
+            continue
+        p = ri.product
+        out.append(
+            schemas.RecipeIngredientOut(
+                name=p.name,
+                unit=_inventory_unit_to_recipe_abbr(p.unit),
+                quantity=ri.quantity,
+                product_id=p.id,
+            )
+        )
+    return out
+
+
+def _sync_recipe_line_items(
+    db_session: Session,
+    recipe: models.Recipe,
+    ingredients: list[schemas.RecipeIngredientCreate],
+) -> None:
+    line_items: list[models.RecipeItem] = []
+    for ingredient in ingredients:
+        item_name = ingredient.name.strip()
+        if not item_name:
+            raise HTTPException(status_code=400, detail="Ingrediente inválido")
+
+        product: models.InventoryProduct | None = None
+        if ingredient.product_id is not None:
+            product = _get_product(db_session, ingredient.product_id)
+        else:
+            product = _find_product_by_name(db_session, name=item_name)
+
+        if not product:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"No hay producto de inventario para «{item_name}». "
+                    "Elegí el ingrediente en el buscador o creá el producto en Inventario."
+                ),
+            )
+
+        line_items.append(
+            models.RecipeItem(
+                product_id=product.id,
+                quantity=ingredient.quantity,
+                waste_pct=ingredient.waste_pct,
+            )
+        )
+    recipe.items = line_items
+
+
 def _find_product_by_sku(
     db_session: Session, *, sku: str, exclude_id: int | None = None
 ) -> models.InventoryProduct | None:
@@ -709,7 +777,9 @@ def list_recipes(db_session: Session = Depends(db.get_db)):
     response: list[schemas.RecipeCatalogOut] = []
     for recipe, menu_item in rows:
         ingredients: list[schemas.RecipeIngredientOut] = []
-        if isinstance(menu_item.ingredients, list):
+        if recipe.items:
+            ingredients = _catalog_ingredients_from_line_items(recipe)
+        elif isinstance(menu_item.ingredients, list):
             for raw in menu_item.ingredients:
                 if isinstance(raw, str):
                     line = raw.strip()
@@ -720,6 +790,7 @@ def list_recipes(db_session: Session = Depends(db.get_db)):
                             name=line,
                             unit=None,
                             quantity=Decimal("0"),
+                            product_id=None,
                         )
                     )
                     continue
@@ -739,18 +810,9 @@ def list_recipes(db_session: Session = Depends(db.get_db)):
                         name=name,
                         unit=str(unit) if unit is not None else None,
                         quantity=q,
+                        product_id=None,
                     )
                 )
-        if not ingredients:
-            ingredients = [
-                schemas.RecipeIngredientOut(
-                    name=item.product.name,
-                    unit=item.product.unit,
-                    quantity=item.quantity,
-                )
-                for item in recipe.items
-                if item.product is not None
-            ]
         response.append(
             schemas.RecipeCatalogOut(
                 id=recipe.id,
@@ -840,8 +902,28 @@ def create_recipe(payload: schemas.RecipeCreate, db_session: Session = Depends(d
         notes=payload.notes,
     )
     db_session.add(recipe)
+    db_session.flush()
+    _sync_recipe_line_items(db_session, recipe, payload.ingredients)
+    recipe_id_saved = recipe.id
+    menu_item_id_saved = menu_item.id
     db_session.commit()
-    db_session.refresh(recipe)
+
+    recipe = (
+        db_session.query(models.Recipe)
+        .options(joinedload(models.Recipe.items).joinedload(models.RecipeItem.product))
+        .filter(models.Recipe.id == recipe_id_saved)
+        .first()
+    )
+    if not recipe:
+        raise HTTPException(status_code=500, detail="No se pudo cargar la receta creada")
+
+    menu_item = (
+        db_session.query(models.MenuItem)
+        .filter(models.MenuItem.id == menu_item_id_saved)
+        .first()
+    )
+    if not menu_item:
+        raise HTTPException(status_code=500, detail="No se pudo cargar el ítem de menú")
 
     return schemas.RecipeCatalogOut(
         id=recipe.id,
@@ -850,14 +932,7 @@ def create_recipe(payload: schemas.RecipeCreate, db_session: Session = Depends(d
         yield_quantity=recipe.yield_quantity,
         unit=recipe.unit,
         created_at=recipe.created_at,
-        ingredients=[
-            schemas.RecipeIngredientOut(
-                name=item["name"],
-                unit=item["unit"],
-                quantity=item["quantity"],
-            )
-            for item in normalized_ingredients
-        ],
+        ingredients=_catalog_ingredients_from_line_items(recipe),
         menu_category=menu_item.category or "",
         menu_item_is_active=bool(menu_item.is_active),
     )
@@ -922,10 +997,30 @@ def update_recipe(
     recipe.unit = payload.unit.strip().upper() if payload.unit else None
     recipe.notes = payload.notes
 
+    _sync_recipe_line_items(db_session, recipe, payload.ingredients)
+
     db_session.add(menu_item)
     db_session.add(recipe)
+    recipe_id_saved = recipe.id
+    menu_item_id_saved = menu_item.id
     db_session.commit()
-    db_session.refresh(recipe)
+
+    recipe = (
+        db_session.query(models.Recipe)
+        .options(joinedload(models.Recipe.items).joinedload(models.RecipeItem.product))
+        .filter(models.Recipe.id == recipe_id_saved)
+        .first()
+    )
+    if not recipe:
+        raise HTTPException(status_code=500, detail="No se pudo cargar la receta actualizada")
+
+    menu_item = (
+        db_session.query(models.MenuItem)
+        .filter(models.MenuItem.id == menu_item_id_saved)
+        .first()
+    )
+    if not menu_item:
+        raise HTTPException(status_code=500, detail="No se pudo cargar el ítem de menú")
 
     return schemas.RecipeCatalogOut(
         id=recipe.id,
@@ -934,14 +1029,7 @@ def update_recipe(
         yield_quantity=recipe.yield_quantity,
         unit=recipe.unit,
         created_at=recipe.created_at,
-        ingredients=[
-            schemas.RecipeIngredientOut(
-                name=item["name"],
-                unit=item["unit"],
-                quantity=item["quantity"],
-            )
-            for item in normalized_ingredients
-        ],
+        ingredients=_catalog_ingredients_from_line_items(recipe),
         menu_category=menu_item.category or "",
         menu_item_is_active=bool(menu_item.is_active),
     )
@@ -965,7 +1053,7 @@ def delete_recipe(recipe_id: str, db_session: Session = Depends(db.get_db)):
     return None
 
 
-@router.put("/recipes/{menu_item_id}", response_model=schemas.RecipeOut)
+@router.put("/recipes/by-menu-item/{menu_item_id}", response_model=schemas.RecipeOut)
 def upsert_recipe(
     menu_item_id: int, payload: schemas.RecipeUpsert, db_session: Session = Depends(db.get_db)
 ):
