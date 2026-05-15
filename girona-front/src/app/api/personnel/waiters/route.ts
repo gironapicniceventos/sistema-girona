@@ -17,9 +17,16 @@ export async function GET(request: Request) {
   const active = requestUrl.searchParams.get("active");
   if (active) backendUrl.searchParams.set("active", active);
 
+  const authorization = request.headers.get("authorization")?.trim();
+  const forwardHeaders: HeadersInit = {};
+  if (authorization) forwardHeaders.Authorization = authorization;
+
   let response: Response;
   try {
-    response = await fetch(backendUrl.toString(), { cache: "no-store" });
+    response = await fetch(backendUrl.toString(), {
+      cache: "no-store",
+      headers: forwardHeaders,
+    });
   } catch (error) {
     return NextResponse.json(
       {

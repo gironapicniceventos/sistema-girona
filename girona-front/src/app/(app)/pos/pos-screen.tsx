@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { HiOutlineCash } from "react-icons/hi";
 import { RiDrinks2Fill, RiProhibited2Line, RiRestaurantLine } from "react-icons/ri";
 import { useSession } from "@/components/Auth/SessionContext";
+import { readAuth } from "@/lib/auth/storage";
 import { getPosCategoryIcon } from "@/lib/pos-menu-category-icons";
 import { formatApiErrorMessage } from "@/app/api/personnel/_utils";
 
@@ -1236,9 +1237,7 @@ export default function PosScreen() {
     setWaiterOrder(order);
     setWaiterModalOpen(true);
     resetWaiterForm();
-    if (!useAutoWaiter && order.waiter_id == null) {
-      void loadWaiters();
-    }
+    void loadWaiters();
   }
 
   function closeWaiterModal() {
@@ -1250,17 +1249,34 @@ export default function PosScreen() {
   async function loadWaiters() {
     setLoadingWaiters(true);
     try {
-      const res = await fetch("/api/personnel/waiters?active=true", { cache: "no-store" });
+      const auth = readAuth();
+      const headers: Record<string, string> = {};
+      if (auth?.accessToken) {
+        headers.authorization = `${auth.tokenType || "Bearer"} ${auth.accessToken}`;
+      }
+      const res = await fetch("/api/personnel/waiters?active=true", {
+        cache: "no-store",
+        headers,
+      });
       const payload = (await res.json().catch(() => null)) as any;
       if (!res.ok) {
         throw new Error(
           (typeof payload?.message === "string" && payload.message) ||
+            (typeof payload?.detail === "string" && payload.detail) ||
             "No se pudo cargar meseros.",
         );
       }
       setWaiterList(Array.isArray(payload) ? (payload as Waiter[]) : []);
-    } catch {
+      setWaiterStatus({ kind: "idle" });
+    } catch (error) {
       setWaiterList([]);
+      setWaiterStatus({
+        kind: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "No se pudo cargar meseros. Verifica tu sesión o la conexión.",
+      });
     } finally {
       setLoadingWaiters(false);
     }
@@ -1268,10 +1284,15 @@ export default function PosScreen() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/personnel/waiters?active=true", { cache: "no-store" })
-      .then((res) => res.json())
-      .then((data) => {
-        if (cancelled || !Array.isArray(data)) return;
+    const auth = readAuth();
+    const headers: Record<string, string> = {};
+    if (auth?.accessToken) {
+      headers.authorization = `${auth.tokenType || "Bearer"} ${auth.accessToken}`;
+    }
+    fetch("/api/personnel/waiters?active=true", { cache: "no-store", headers })
+      .then(async (res) => {
+        const data = await res.json().catch(() => null);
+        if (cancelled || !res.ok || !Array.isArray(data)) return;
         setWaiterList(data as Waiter[]);
       })
       .catch(() => {});
