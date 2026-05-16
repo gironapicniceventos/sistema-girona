@@ -44,7 +44,6 @@ export default function SalesBreakdownPanel({
   formatMoney = defaultFormatMoney,
 }: Props) {
   const m = formatMoney;
-  const ingMenosEgresos = breakdown.totalFacturado - purchasesTotal;
 
   return (
     <div className="rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
@@ -100,16 +99,9 @@ export default function SalesBreakdownPanel({
                         <td className="py-2 text-right text-dark dark:text-white">{m(purchasesTotal)}</td>
                       </tr>
                       <tr>
-                        <td className="py-2 pr-2 font-medium text-dark dark:text-white">
-                          Ventas − compras (referencia)
-                        </td>
-                        <td
-                          className={
-                            "py-2 text-right font-semibold " +
-                            (ingMenosEgresos >= 0 ? "text-green-600" : "text-red")
-                          }
-                        >
-                          {m(ingMenosEgresos)}
+                        <td className="py-2 pr-2 font-medium text-dark dark:text-white">Ventas</td>
+                        <td className="py-2 text-right font-semibold text-green-600">
+                          {m(breakdown.totalFacturado)}
                         </td>
                       </tr>
                     </>

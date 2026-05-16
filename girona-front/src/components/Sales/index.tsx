@@ -342,6 +342,8 @@ export default function Sales(props?: { historyOnly?: boolean }) {
   const [creditNoteSaleId, setCreditNoteSaleId] = useState<number | null>(null);
   const [purchases, setPurchases] = useState<PurchaseRecord[]>([]);
   const [purchasesLoading, setPurchasesLoading] = useState(true);
+  const [exportingExcel, setExportingExcel] = useState(false);
+  const [exportExcelError, setExportExcelError] = useState<string | null>(null);
 
   const withPeriodParam = useCallback((basePath: string, period: SummaryTimeFilter) => {
     return `${basePath}?period=${encodeURIComponent(period)}`;
@@ -353,6 +355,45 @@ export default function Sales(props?: { historyOnly?: boolean }) {
     }
     return `/api/sales?period=${encodeURIComponent(salesHistoryFilter)}`;
   }, [salesHistoryFilter, customDateFrom, customDateTo]);
+
+  const buildSalesExcelUrl = useCallback(() => {
+    if (salesHistoryFilter === "custom") {
+      return `/api/sales/exports/ventas?date_from=${encodeURIComponent(customDateFrom)}&date_to=${encodeURIComponent(customDateTo)}`;
+    }
+    return `/api/sales/exports/ventas?period=${encodeURIComponent(salesHistoryFilter)}`;
+  }, [salesHistoryFilter, customDateFrom, customDateTo]);
+
+  const handleDownloadSalesExcel = useCallback(async () => {
+    setExportingExcel(true);
+    setExportExcelError(null);
+    try {
+      const response = await fetch(buildSalesExcelUrl(), { cache: "no-store" });
+      if (!response.ok) {
+        const payload = await safeJson(response);
+        throw new Error(
+          (payload as { message?: string })?.message || "No se pudo descargar el Excel",
+        );
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get("content-disposition") ?? "";
+      const match = disposition.match(/filename="?([^";]+)"?/i);
+      const filename = match?.[1] ?? `ventas-${salesHistoryFilter}.xlsx`;
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+      setExportExcelError(
+        error instanceof Error ? error.message : "No se pudo descargar el Excel",
+      );
+    } finally {
+      setExportingExcel(false);
+    }
+  }, [buildSalesExcelUrl, salesHistoryFilter]);
 
   const loadSalesData = useCallback(async () => {
     setLoading(true);
@@ -838,12 +879,28 @@ export default function Sales(props?: { historyOnly?: boolean }) {
               />
               <button
                 type="button"
+                onClick={() => void handleDownloadSalesExcel()}
+                disabled={exportingExcel || loading}
+                className={
+                  "rounded-lg border px-4 py-2 text-sm font-semibold transition " +
+                  (exportingExcel || loading
+                    ? "cursor-not-allowed border-gray-200 text-gray-400"
+                    : "border-primary/70 text-primary hover:border-primary hover:bg-primary/10")
+                }
+              >
+                {exportingExcel ? "Generando Excel..." : "Descargar Excel"}
+              </button>
+              <button
+                type="button"
                 onClick={loadSalesData}
                 className="rounded-lg border border-stroke px-4 py-2 text-sm font-medium text-black transition hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
               >
                 Actualizar
               </button>
             </div>
+            {exportExcelError ? (
+              <p className="text-sm text-danger">{exportExcelError}</p>
+            ) : null}
             {salesHistoryFilter === "custom" ? (
               <div className="flex w-full flex-wrap items-end gap-3 text-sm text-body">
                 <label className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-none">

@@ -1,0 +1,96 @@
+Girona — hojas operativas (inventario carta recetas que cuadren)
+================================================================
+
+Tenés dos tipos de archivo en esta carpeta:
+
+A) girona_mapa_negocio.csv — mapa en palabras simples para el equipo.
+B) operativo_00 … operativo_04 — inventario carta y líneas de receta.
+C) recetas_catalogo_girona.csv — catálogo de recetas del recetario bar (JSON del backend)
+   con columnas de costo precio y margen para completar en planilla.
+D) inventario_catalogo_girona.csv — cinco columnas como la tabla Inventario en el front:
+   Producto | Unidad | Stock | Costo unit. | Costo total
+   (Costo total = Stock × Costo unit.; por defecto Stock 0 → total 0.)
+   Regenerar: python3 docs/girona-sheet-modelo/build_inventario_catalogo.py
+
+Por qué varias hojas y no un solo CSV ancho
+--------------------------------------------
+Un solo archivo mezclando inventario y líneas de receta obliga a repetir
+cabeceras o a tener miles de columnas vacías. En Google Sheets lo sano es:
+
+  Inventario_maestro   (una fila = un producto en stock)
+  Carta_precios        (una fila = un ítem vendible con precio)
+  Recetas_cabecera     (una fila = una receta / un preparado)
+  Receta_ingredientes  (muchas filas por receta: insumo + cantidad)
+
+Así el limón aparece UNA vez en inventario y MUCHAS veces en recetas, sin
+duplicar su ficha.
+
+Cómo importar en Google Sheets
+------------------------------
+1. Creá una hoja de cálculo nueva.
+2. Importá operativo_00_indice_hojas.csv en la primera pestaña; renombrala a Indice.
+3. Por cada archivo operativo_01 … operativo_04: Archivo → Importar → crear pestaña nueva.
+   Renombrá cada pestaña exactamente al nombre recomendado en el índice.
+
+Cadena de relaciones (qué columna enlaza con qué)
+-------------------------------------------------
+- inventario:     inventory_id  (maestro; mismo esquema que tu hoja de compras/stock)
+- carta:          codigo_plato       (único por plato)
+                  codigo_receta_que_lo_costea → debe ser un codigo_receta válido
+- receta cabecera: codigo_receta     + codigo_plato_que_vende → debe estar en carta
+- receta líneas:   codigo_receta     + inventory_id → debe existir en Inventario_maestro
+
+Regla de oro para que “cuadre”
+------------------------------
+Todo inventory_id que aparezca en Receta_ingredientes debe existir en
+Inventario_maestro con el mismo código.
+
+Unidades (kg L und vs GR ML en software)
+----------------------------------------
+En la planilla podés usar kg / L / und como en tu ejemplo. En la columna de la
+receta conviene usar la misma unidad base que en Inventario_maestro o anotar la
+conversión en comentario para que el equipo no mezcle gramos con kilos sin factor.
+
+Todo codigo_receta de Receta_ingredientes debe existir en Recetas_cabecera.
+Todo codigo_plato de Recetas_cabecera debe existir en Carta_precios.
+
+Opcional en Sheets: columna auxiliar en Receta_ingredientes con fórmula COUNTIF
+sobre Inventario_maestro para marcar si falta el insumo.
+
+Costo y precio
+--------------
+- Carta_precios.precio_venta_cop = precio al cliente.
+- Inventario_maestro.costo_unitario = costo por unidad de compra (según unidad_medida);
+  podés calcular costo teórico de receta sumando cantidad_usada × costo coherente con la unidad.
+
+Archivo inventario_catalogo_girona.csv
+--------------------------------------
+Columnas (misma idea que la pantalla Inventario):
+  Producto | Unidad | Stock | Costo unit. | Costo total
+
+- Unidad: ML, GR o Unidad (equivalente a formatUnitAbbr en el front).
+- Costo unit. sale de upsert-ingredients (total de línea / cantidad) o estimado
+  para ítems que solo están en upsert-*-recipes.mjs.
+- Stock por defecto 0 → Costo total 0 (en la UI, costo total = stock × costo unit.).
+  Sustituí la columna Stock por tus on_hand reales si querés valorizar inventario.
+- Regenerar: python3 docs/girona-sheet-modelo/build_inventario_catalogo.py
+
+Sistema Girona (recordatorio corto)
+-----------------------------------
+En la base formal del software, la receta cuelga del menu_item y las líneas del
+producto de inventario por id; esta hoja es tu planilla maestra con CÓDIGOS
+estables antes de pasar todo al sistema.
+
+Archivo recetas_catalogo_girona.csv
+-----------------------------------
+- Incluye dos bloques con IDs REC-001 en adelante en un solo archivo:
+  · REC-001 … REC-036: recetario de bar (girona-back/app/recetario_bar.json).
+  · REC-037 … REC-074: platos con receta definida en los scripts del front
+    girona-front/scripts/upsert-*-recipes.mjs (cocina / restaurante), área
+    «Restaurante», categorías alineadas al menú (Burguers, Antojitos, etc.).
+- No es automáticamente el listado 100% de la base de datos en producción: si
+  cargás más ítems desde Excel (seed) o a mano en el admin, pueden existir más
+  menu_items con Recipe que no están en este CSV.
+- Costo Total, Precio Sugerido y Margen van vacíos salvo ejemplo en «Mojito cubano»
+  (podés replicar fórmulas en Sheets para el resto).
+- Tiempo de preparación es estimado orientativo para la planilla.

@@ -10,7 +10,26 @@ import timezone from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
 import jsPDF from "jspdf";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { HiOutlineCash } from "react-icons/hi";
+import {
+  HiLightningBolt,
+  HiOutlineBell,
+  HiOutlineCash,
+  HiOutlineClock,
+  HiOutlinePrinter,
+} from "react-icons/hi";
+import { buildEscPosReceiptBytes } from "@/lib/escpos/build-receipt";
+import { PrefacturaClientePanel } from "@/lib/pos/prefactura-client-panel";
+import {
+  buildPrefacturaPdf,
+  buildThermalReceiptPdf,
+} from "@/lib/pos/prefactura-pdf";
+import { lineItemCartGross, lineItemCartUnit, orderCartTotals } from "@/lib/pos/prefactura";
+import {
+  colombiaNow,
+  getOrderRecencyLevel,
+  latestOrderIdByTime,
+  OrderRecencyIndicator,
+} from "@/lib/pos/order-recency";
 import { RiDrinks2Fill, RiProhibited2Line, RiRestaurantLine } from "react-icons/ri";
 import { useSession } from "@/components/Auth/SessionContext";
 import { readAuth } from "@/lib/auth/storage";
@@ -711,31 +730,58 @@ function buildPreFacturaPdf(
 // Modal para ver pedido existente
 function ViewOrderModal({
   order,
+  tableName,
   waiterDisplayName,
   onClose,
   canAddToOrder,
   onAddToOrder,
   canPayOrder,
   onPayOrder,
+  onEscPosPrint,
   deletingItemId,
   onDeleteItem,
   deleteSuccessMessage,
 }: {
   order: PosOrderOut | null;
+  tableName?: string;
   waiterDisplayName?: string | null;
   onClose: () => void;
   canAddToOrder: boolean;
   onAddToOrder: (order: PosOrderOut) => void;
   canPayOrder: boolean;
   onPayOrder: (order: PosOrderOut) => void;
+  onEscPosPrint?: (order: PosOrderOut, tipAmount?: number) => void;
   deletingItemId: number | null;
   onDeleteItem: (order: PosOrderOut, itemId: number) => void;
   deleteSuccessMessage: string | null;
 }) {
+  const [tipInput, setTipInput] = useState("");
+
+  useEffect(() => {
+    if (!order) return;
+    setTipInput(String(orderCartTotals(order).suggestedTip));
+  }, [order?.id]);
+
   if (!order) return null;
+  const activeOrder = order;
   const zoneLabel = (zone: string) => (zone === "bar" ? "Bar" : "Restaurante");
-  const status = orderStatusMeta(order.status);
-  const waiterTitle = (waiterDisplayName ?? order.waiter_name ?? "").trim();
+  const status = orderStatusMeta(activeOrder.status);
+  const waiterTitle = (waiterDisplayName ?? activeOrder.waiter_name ?? "").trim();
+  const resolvedTable = tableName ?? `Mesa ${activeOrder.table_id}`;
+  const tipParsed = Number(tipInput);
+  const tipForCalc = Number.isFinite(tipParsed) ? Math.max(0, tipParsed) : undefined;
+
+  function downloadPrefactura() {
+    buildPrefacturaPdf(activeOrder, resolvedTable, status.label, tipForCalc).save(
+      `prefactura-pedido-${activeOrder.id}.pdf`,
+    );
+  }
+
+  function printPrefactura() {
+    buildPrefacturaPdf(activeOrder, resolvedTable, status.label, tipForCalc).output(
+      "dataurlnewwindow",
+    );
+  }
   return (
     <div
       className="fixed inset-0 z-99 flex items-center justify-center bg-black/60 p-4 opacity-0 animate-[fadeIn_160ms_ease-out_forwards]"
@@ -750,7 +796,7 @@ function ViewOrderModal({
         <div className="flex items-center justify-between border-b border-stroke px-4 py-3 dark:border-dark-3">
           <div>
             <h3 className="text-base font-semibold text-dark dark:text-white">
-              Pedido #{order.id}
+              Pedido #{activeOrder.id}
               {waiterTitle ? (
                 <span className="font-medium text-body-color dark:text-dark-6">
                   {" "}
@@ -759,14 +805,40 @@ function ViewOrderModal({
               ) : null}
             </h3>
             <p className="text-xs text-body-color dark:text-dark-6">
-              Mesa: {order.table_id} · Estado: {status.label}
+              Mesa: {resolvedTable} · Estado: {status.label}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={printPrefactura}
+              className="inline-flex items-center gap-1 rounded-lg border border-primary/40 bg-primary/5 px-2.5 py-1.5 text-xs font-semibold text-primary hover:bg-primary/10"
+            >
+              <HiOutlinePrinter className="h-4 w-4" />
+              Imprimir prefactura
+            </button>
+            <button
+              type="button"
+              onClick={downloadPrefactura}
+              className="inline-flex items-center gap-1 rounded-lg border border-primary/40 bg-primary/5 px-2.5 py-1.5 text-xs font-semibold text-primary hover:bg-primary/10"
+            >
+              <DownloadIcon />
+              Descargar prefactura
+            </button>
+            {onEscPosPrint ? (
+              <button
+                type="button"
+                onClick={() => onEscPosPrint(activeOrder, tipForCalc)}
+                className="inline-flex items-center gap-1 rounded-lg border border-stroke px-2.5 py-1.5 text-xs font-semibold text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
+              >
+                <HiLightningBolt className="h-4 w-4" />
+                ESC/POS
+              </button>
+            ) : null}
             {canAddToOrder ? (
               <button
                 type="button"
-                onClick={() => onAddToOrder(order)}
+                onClick={() => onAddToOrder(activeOrder)}
                 className="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary/90"
               >
                 Añadir pedido
@@ -791,10 +863,10 @@ function ViewOrderModal({
               <span>{deleteSuccessMessage}</span>
             </div>
           ) : null}
-          {order.items.length === 0 ? (
+          {activeOrder.items.length === 0 ? (
             <p className="text-sm text-dark-6 dark:text-dark-6">Sin items.</p>
           ) : (
-            order.items.map((item) => (
+            activeOrder.items.map((item) => (
               <div
                 key={item.id}
                 className="rounded-xl border border-stroke bg-white p-3 text-sm text-dark shadow-sm dark:border-dark-3 dark:bg-dark-2 dark:text-white"
@@ -807,7 +879,7 @@ function ViewOrderModal({
                     </div>
                   </div>
                   <div className="text-sm font-semibold text-primary">
-                    {formatMoney(Number(item.unit_price))}
+                    {formatMoney(lineItemCartUnit(item))}
                   </div>
                 </div>
                 <div className="mt-1 text-xs text-dark-6 dark:text-dark-6">
@@ -818,10 +890,10 @@ function ViewOrderModal({
                   {item.courtesy ? " · Cortesía" : ""}
                 </div>
                 <div className="mt-1 flex items-center justify-between gap-2 text-xs font-semibold text-dark dark:text-white">
-                  <span>Total línea: {formatMoney(Number(item.line_total))}</span>
+                  <span>Total línea (carta): {formatMoney(lineItemCartGross(item))}</span>
                   <button
                     type="button"
-                    onClick={() => onDeleteItem(order, item.id)}
+                    onClick={() => onDeleteItem(activeOrder, item.id)}
                     disabled={deletingItemId === item.id}
                     className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-red/70 text-red hover:bg-red/10 disabled:cursor-not-allowed disabled:opacity-50"
                     title="Eliminar producto"
@@ -834,29 +906,15 @@ function ViewOrderModal({
             ))
           )}
 
-          <div className="space-y-1 text-sm text-dark dark:text-white">
-            <div className="flex items-center justify-between">
-              <span>Subtotal</span>
-              <span>{formatMoney(Number(order.subtotal))}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span>Descuentos</span>
-              <span>{formatMoney(Number(order.discount_total))}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span>Cortesías</span>
-              <span>{formatMoney(Number(order.courtesy_total))}</span>
-            </div>
-            <p className="text-[11px] text-dark-6 dark:text-dark-6">{PREFACTURA_INC_FOOTNOTE}</p>
-            <div className="flex items-center justify-between font-semibold">
-              <span>Total</span>
-              <span>{formatMoney(Number(order.total))}</span>
-            </div>
-          </div>
+          <PrefacturaClientePanel
+            order={activeOrder}
+            tipInput={tipInput}
+            onTipInputChange={setTipInput}
+          />
           {canPayOrder ? (
             <button
               type="button"
-              onClick={() => onPayOrder(order)}
+              onClick={() => onPayOrder(activeOrder)}
               className="mt-2 w-full rounded-lg bg-red px-4 py-2 text-sm font-semibold text-white hover:bg-red/90"
             >
               Pagar
@@ -1014,7 +1072,34 @@ export default function PosScreen() {
     };
   }, [paymentOrder, applyConsumptionTax, issueElectronicInvoice, serviceTipInput]);
 
-  const activeOrders = orders;
+  const activeOrders = useMemo(
+    () => orders.filter((o) => !["closed", "void"].includes(o.status)),
+    [orders],
+  );
+
+  const [recencyNow, setRecencyNow] = useState(() => colombiaNow());
+
+  useEffect(() => {
+    const id = window.setInterval(() => setRecencyNow(colombiaNow()), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const activeOrdersSorted = useMemo(
+    () =>
+      [...activeOrders].sort((a, b) => {
+        const ta = toColombiaTime(a.opened_at);
+        const tb = toColombiaTime(b.opened_at);
+        if (ta?.isValid() && tb?.isValid()) return tb.valueOf() - ta.valueOf();
+        return b.id - a.id;
+      }),
+    [activeOrders],
+  );
+
+  const latestActiveOrderId = useMemo(
+    () => latestOrderIdByTime(activeOrders, (o) => toColombiaTime(o.opened_at)),
+    [activeOrders],
+  );
+
   const visibleTables = useMemo(
     () =>
       tables.filter((table) => {
@@ -1027,7 +1112,18 @@ export default function PosScreen() {
     const map = new Map<number, PosOrderOut>();
     for (const order of orders) {
       if (["closed", "void"].includes(order.status)) continue;
-      if (!map.has(order.table_id)) {
+      const prev = map.get(order.table_id);
+      if (!prev) {
+        map.set(order.table_id, order);
+        continue;
+      }
+      const tNew = toColombiaTime(order.opened_at);
+      const tPrev = toColombiaTime(prev.opened_at);
+      if (tNew?.isValid() && tPrev?.isValid()) {
+        if (tNew.isAfter(tPrev) || (tNew.isSame(tPrev) && order.id > prev.id)) {
+          map.set(order.table_id, order);
+        }
+      } else if (order.id > prev.id) {
         map.set(order.table_id, order);
       }
     }
@@ -1056,6 +1152,102 @@ export default function PosScreen() {
 
   function getTableName(tableId: number) {
     return tables.find((t) => t.id === tableId)?.name ?? `Mesa ${tableId}`;
+  }
+
+  const POS_THERMAL_HOST_KEY = "pos_thermal_printer_host";
+  const POS_THERMAL_PORT_KEY = "pos_thermal_printer_port";
+
+  function uint8ToBase64(bytes: Uint8Array): string {
+    let bin = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    return btoa(bin);
+  }
+
+  function thermalBridgePrintUrl(): string {
+    const raw = (process.env.NEXT_PUBLIC_THERMAL_BRIDGE_URL || "").trim();
+    if (!raw) return "";
+    const t = raw.replace(/\/$/, "");
+    return t.endsWith("/print") ? t : `${t}/print`;
+  }
+
+  async function handleEscPosNetworkPrint(order: PosOrderOut, tipAmount?: number) {
+    let host =
+      typeof window !== "undefined" ? window.localStorage.getItem(POS_THERMAL_HOST_KEY) : null;
+    if (!host?.trim()) {
+      const entered = window.prompt(
+        "Impresora térmica (ESC/POS por red, típico puerto 9100). IP o hostname, ej: 192.168.1.50",
+      );
+      if (!entered?.trim()) return;
+      host = entered.trim();
+      window.localStorage.setItem(POS_THERMAL_HOST_KEY, host);
+    }
+    const portStored = window.localStorage.getItem(POS_THERMAL_PORT_KEY);
+    const port = Number(portStored) > 0 ? Number(portStored) : 9100;
+
+    const status = posOrderRowStatusMeta(order);
+    const createdAt = toColombiaTime(order.opened_at);
+    const dateText = createdAt?.isValid() ? createdAt.format("DD/MM/YYYY HH:mm") : "—";
+    const tableName = getTableName(order.table_id);
+    const bytes = buildEscPosReceiptBytes(order, {
+      tableName,
+      statusLabel: status.label,
+      dateText,
+      lineWidth: 48,
+      tipAmount,
+    });
+
+    const bridge = thermalBridgePrintUrl();
+
+    try {
+      if (bridge) {
+        const res = await fetch(bridge, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            host: host.trim(),
+            port,
+            dataBase64: uint8ToBase64(bytes),
+          }),
+        });
+        const payload = (await res.json().catch(() => null)) as { message?: string } | null;
+        if (!res.ok) {
+          window.alert(
+            (typeof payload?.message === "string" && payload.message) ||
+              "El puente local no pudo enviar a la impresora.",
+          );
+        }
+        return;
+      }
+
+      const res = await fetch("/api/pos/print/escpos", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          order,
+          tableName,
+          statusLabel: status.label,
+          dateText,
+          host: host.trim(),
+          port,
+        }),
+      });
+      const payload = (await res.json().catch(() => null)) as {
+        message?: string;
+        detail?: string;
+      } | null;
+      if (!res.ok) {
+        window.alert(
+          (typeof payload?.message === "string" && payload.message) ||
+            (typeof payload?.detail === "string" && payload.detail) ||
+            "No se pudo imprimir. Ejecute scripts/thermal-print-bridge.mjs en la caja y defina NEXT_PUBLIC_THERMAL_BRIDGE_URL.",
+        );
+      }
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Error imprimiendo ESC/POS.");
+    }
   }
 
   function openAppendOrderFlow(order: PosOrderOut) {
@@ -2023,6 +2215,9 @@ export default function PosScreen() {
           {visibleTables.map((table) => (
             (() => {
               const latestOrder = activeOrderByTable.get(table.id);
+              const tableRecency = latestOrder
+                ? getOrderRecencyLevel(latestOrder, recencyNow)
+                : null;
               const tableSection = normalizeTableSection(table.section);
               return (
             <div
@@ -2047,6 +2242,26 @@ export default function PosScreen() {
               style={{ backgroundImage: "url('/images/cards/mesa.jpg')", backgroundSize: "cover" }}
             >
               <div className="absolute inset-0 bg-black/35" />
+              {tableRecency === "hot" ? (
+                <span className="absolute left-2 top-10 z-10">
+                  <span className="relative inline-flex h-7 w-7">
+                    <span
+                      aria-hidden
+                      className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#FFA70B] opacity-75"
+                    />
+                    <span className="relative inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#FFA70B] text-white shadow-sm">
+                      <HiOutlineBell className="h-4 w-4" />
+                    </span>
+                  </span>
+                </span>
+              ) : tableRecency === "today" ? (
+                <span
+                  className="absolute left-2 top-10 z-10 inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/90 text-[#219653] shadow-sm"
+                  title="Pedido de hoy"
+                >
+                  <HiOutlineClock className="h-4 w-4" />
+                </span>
+              ) : null}
               <div className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-dark shadow-sm">
                 {tableSection}
               </div>
@@ -2131,7 +2346,9 @@ export default function PosScreen() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {activeOrders.map((order) => {
+              {activeOrdersSorted.map((order) => {
+                const recencyLevel = getOrderRecencyLevel(order, recencyNow);
+                const isLatest = order.id === latestActiveOrderId;
                 const status = posOrderRowStatusMeta(order);
                 const createdAt = toColombiaTime(order.opened_at);
                 const deliveredAt = toColombiaTime(order.delivered_at);
@@ -2157,7 +2374,10 @@ export default function PosScreen() {
                     className={`border-[#eee] dark:border-dark-3 ${rowHighlight}`}
                   >
                     <TableCell className="min-w-[200px] xl:pl-7.5">
-                      <h5 className="text-dark dark:text-white">Pedido #{order.id}</h5>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h5 className="text-dark dark:text-white">Pedido #{order.id}</h5>
+                        <OrderRecencyIndicator level={recencyLevel} isLatest={isLatest} />
+                      </div>
                       {resolveWaiterName(order) ? (
                         <p className="mt-[2px] text-body-sm font-medium text-dark-6 dark:text-dark-6">
                           Mesero: {resolveWaiterName(order)}
@@ -2248,6 +2468,16 @@ export default function PosScreen() {
                           >
                             <span className="sr-only">Descargar ticket POS</span>
                             <DownloadIcon />
+                          </button>
+                        </Tooltip>
+                        <Tooltip label="Imprimir ESC/POS (térmica red)">
+                          <button
+                            type="button"
+                            onClick={() => handleEscPosNetworkPrint(order)}
+                            className="flex h-9 w-9 items-center justify-center rounded-lg border border-stroke text-dark hover:border-primary hover:text-primary dark:border-dark-3 dark:text-white"
+                          >
+                            <span className="sr-only">Imprimir ESC/POS</span>
+                            <HiLightningBolt className="h-5 w-5" />
                           </button>
                         </Tooltip>
                       </div>
@@ -3253,7 +3483,9 @@ export default function PosScreen() {
 
       <ViewOrderModal
         order={viewOrder}
+        tableName={viewOrder ? getTableName(viewOrder.table_id) : undefined}
         waiterDisplayName={viewOrder ? resolveWaiterName(viewOrder) : null}
+        onEscPosPrint={handleEscPosNetworkPrint}
         onClose={() => {
           setViewOrder(null);
           setViewDeleteSuccessMessage(null);

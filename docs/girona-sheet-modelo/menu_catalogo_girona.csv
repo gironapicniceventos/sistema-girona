@@ -1,0 +1,132 @@
+ID Menú,Nombre Producto Venta,Categoría Menú,Área,ID Receta,Precio Venta,Costo Producto,Tiene ingredientes costeo,ID Backend
+MEN-001,Limonada,Bebidas,Bar,REC-001,0,,SI,406
+MEN-002,Limonada de cereza,Bebidas,Bar,REC-003,0,,SI,408
+MEN-003,Limonada de coco,Bebidas,Bar,REC-004,0,,SI,409
+MEN-004,Limonada de hierbabuena,Bebidas,Bar,REC-002,0,,SI,407
+MEN-005,Lulo,Bebidas,Bar,REC-007,0,,SI,412
+MEN-006,Mandarinada,Bebidas,Bar,REC-005,0,,SI,410
+MEN-007,Maracuyá,Bebidas,Bar,REC-008,0,,SI,413
+MEN-008,Naranjada,Bebidas,Bar,REC-006,0,,SI,411
+MEN-009,3 cordilleras,Cervezas nacionales,Bar,REC-074,8000,,NO,392
+MEN-010,Aguila ligth,Cervezas nacionales,Bar,REC-077,8000,,NO,389
+MEN-011,Aguila original,Cervezas nacionales,Bar,REC-078,8000,,NO,390
+MEN-012,Andina refajo,Cervezas nacionales,Bar,REC-079,8000,,NO,386
+MEN-013,Club colombia,Cervezas nacionales,Bar,REC-084,8000,,NO,387
+MEN-014,Coronita,Cervezas nacionales,Bar,REC-087,8000,,NO,388
+MEN-015,Ginet,Cervezas nacionales,Bar,REC-093,8000,,NO,380
+MEN-016,Heineken,Cervezas nacionales,Bar,REC-096,8000,,NO,393
+MEN-017,Manzana postobon,Cervezas nacionales,Bar,REC-102,8000,,NO,381
+MEN-018,Poker,Cervezas nacionales,Bar,REC-103,8000,,NO,391
+MEN-019,Stella,Cervezas nacionales,Bar,REC-107,8000,,NO,394
+MEN-020,Uva postobon,Cervezas nacionales,Bar,REC-112,8000,,NO,383
+MEN-021,Vino segu ole tinto,Cervezas nacionales,Bar,REC-114,8000,,NO,373
+MEN-022,Agua tónica,Cocteleria,Bar,REC-075,8000,,NO,377
+MEN-023,Aguardiente,Cocteleria,Bar,REC-076,8000,,NO,376
+MEN-024,Blue curacao,Cocteleria,Bar,REC-081,8000,,NO,368
+MEN-025,Champagnat jp botella,Cocteleria,Bar,REC-082,8000,,NO,396
+MEN-026,Copa de sangría,Cocteleria,Bar,REC-034,0,,SI,439
+MEN-027,Copa de tinto de verano,Cocteleria,Bar,REC-035,0,,SI,440
+MEN-028,Cuatro,Cocteleria,Bar,REC-090,8000,,NO,379
+MEN-029,Daikiri de frutos rojos,Cocteleria,Bar,REC-032,0,,SI,437
+MEN-030,Gin Tonic,Cocteleria,Bar,REC-026,0,,SI,431
+MEN-031,Gin Tonic tropical,Cocteleria,Bar,REC-027,0,,SI,432
+MEN-032,Ginebra,Cocteleria,Bar,REC-091,8000,,NO,369
+MEN-033,Ginebra rose,Cocteleria,Bar,REC-092,8000,,NO,370
+MEN-034,Jarra de sangría,Cocteleria,Bar,REC-036,0,,SI,441
+MEN-035,Margarita,Cocteleria,Bar,REC-029,0,,SI,434
+MEN-036,Mojito Blue,Cocteleria,Bar,REC-025,0,,SI,430
+MEN-037,Mojito cubano,Cocteleria,Bar,REC-024,0,,SI,429
+MEN-038,Piña colada,Cocteleria,Bar,REC-030,0,,SI,435
+MEN-039,Ron blanco,Cocteleria,Bar,REC-104,8000,,NO,372
+MEN-040,San Francisco,Cocteleria,Bar,REC-033,0,,SI,438
+MEN-041,Tequila,Cocteleria,Bar,REC-109,8000,,NO,371
+MEN-042,The Queen,Cocteleria,Bar,REC-028,0,,SI,433
+MEN-043,Tiki King,Cocteleria,Bar,REC-031,0,,SI,436
+MEN-044,Triplesec,Cocteleria,Bar,REC-110,8000,,NO,375
+MEN-045,Fresas con crema,Dulces bar,Bar,REC-012,0,,SI,417
+MEN-046,Mango Girona,Dulces bar,Bar,REC-014,0,,SI,419
+MEN-047,Waffles,Dulces bar,Bar,REC-013,0,,SI,418
+MEN-048,Malteada frutos rojos,Malteadas,Bar,REC-009,0,,SI,414
+MEN-049,Malteada Girona,Malteadas,Bar,REC-011,0,,SI,416
+MEN-050,Malteada Oreo,Malteadas,Bar,REC-010,0,,SI,415
+MEN-051,Michelada mango biche,Micheladas,Bar,REC-022,0,,SI,427
+MEN-052,Michelada Passion,Micheladas,Bar,REC-021,0,,SI,426
+MEN-053,Michelada Rossi,Micheladas,Bar,REC-023,0,,SI,428
+MEN-054,Michelada tradicional,Micheladas,Bar,REC-020,0,,SI,425
+MEN-055,Banderitas gomas,Postres,Bar,REC-080,8000,,NO,398
+MEN-056,CREPE DULCE TENTACION,Postres,Bar,REC-088,15000,,SI,354
+MEN-057,CUAJADA EN REDUCCION DE PANELA,Postres,Bar,REC-089,15000,,SI,353
+MEN-058,Gomitas,Postres,Bar,REC-094,8000,,NO,397
+MEN-059,Helado fresa,Postres,Bar,REC-097,8000,,NO,400
+MEN-060,Helado maracuyá,Postres,Bar,REC-098,8000,,NO,401
+MEN-061,Helado vainilla,Postres,Bar,REC-099,8000,,NO,399
+MEN-062,Leche condensada,Postres,Bar,REC-101,8000,,NO,402
+MEN-063,Tajín,Postres,Bar,REC-108,8000,,NO,404
+MEN-064,WAFLE,Postres,Bar,REC-115,15000,,SI,355
+MEN-065,Chispitas de chocolate,Sodas,Bar,REC-083,8000,,NO,403
+MEN-066,Coca-Cola,Sodas,Bar,REC-085,8000,,NO,378
+MEN-067,Cola y Pola,Sodas,Bar,REC-086,8000,,NO,385
+MEN-068,Granadina,Sodas,Bar,REC-095,8000,,NO,367
+MEN-069,Hola hipunto,Sodas,Bar,REC-100,8000,,NO,382
+MEN-070,Jarra de refajo,Sodas,Bar,REC-018,0,,SI,423
+MEN-071,Jarra limonada de panela,Sodas,Bar,REC-019,0,,SI,424
+MEN-072,Sal de colores,Sodas,Bar,REC-105,8000,,NO,405
+MEN-073,Soda,Sodas,Bar,REC-106,8000,,NO,374
+MEN-074,Soda Blueberry,Sodas,Bar,REC-017,0,,SI,422
+MEN-075,Soda frutos rojos,Sodas,Bar,REC-016,0,,SI,421
+MEN-076,Soda tropical,Sodas,Bar,REC-015,0,,SI,420
+MEN-077,Uchuva,Sodas,Bar,REC-111,8000,,NO,384
+MEN-078,Vino botella,Vinos,Bar,REC-113,8000,,NO,395
+MEN-079,ENSALADA ACOMPAÑANTE,Ensaladas,Restaurante,REC-116,8000,897,SI,306
+MEN-080,VINAGRETA DE ENSALADA,Ensaladas,Restaurante,REC-117,52756,23980,SI,307
+MEN-081,CANASTICAS DE CARNE,Entradas,Restaurante,REC-118,8000,1132,SI,301
+MEN-082,CHICHARRONES (ENTRADA),Entradas,Restaurante,REC-119,8098,3681,SI,302
+MEN-083,CHORIZOS (ENTRADA),Entradas,Restaurante,REC-120,15000,3585291,SI,303
+MEN-084,CHUNCHULLA (ENTRADA),Entradas,Restaurante,REC-121,8000,3375,SI,308
+MEN-085,EMPANADITAS,Entradas,Restaurante,REC-122,12766,5803,SI,300
+MEN-086,MADURITOS (ENTRADA),Entradas,Restaurante,REC-123,13486,6130,SI,305
+MEN-087,MAZORQUITAS,Entradas,Restaurante,REC-124,14197,8216,SI,299
+MEN-088,NACHITOS (ENTRADA ),Entradas,Restaurante,REC-125,14262,6483,SI,304
+MEN-089,MIGAO GIRONA,Menú infantil,Restaurante,REC-055,15000,,SI,352
+MEN-090,NUGGETS,Menú infantil,Restaurante,REC-126,15000,,SI,351
+MEN-091,PULPITOS DE SALCHICHA,Menú infantil,Restaurante,REC-127,15000,,SI,350
+MEN-092,CEVICHE DE CAMARON,Platos especiales,Restaurante,REC-128,15000,,SI,348
+MEN-093,CEVICHE DE CHICHARRON,Platos especiales,Restaurante,REC-038,15000,,SI,349
+MEN-094,ENSALADA GIRONA,Platos especiales,Restaurante,REC-046,15000,,SI,347
+MEN-095,FETTUCCINE CARBONARA,Platos especiales,Restaurante,REC-129,15000,,SI,345
+MEN-096,GREGORIANA,Platos especiales,Restaurante,REC-130,15000,,SI,346
+MEN-097,TORRE GIRONA,Platos especiales,Restaurante,REC-073,15000,,SI,344
+MEN-098,CHATAS AL CHIMICHURRI,Platos fuertes,Restaurante,REC-131,31908,14504,SI,312
+MEN-099,CHATAS EN BISTECK A CABALLO,Platos fuertes,Restaurante,REC-132,32751,14887,SI,311
+MEN-100,CHICHARRON AL BARRIL,Platos fuertes,Restaurante,REC-039,20977,9535,SI,320
+MEN-101,CHICHARRON EN REDUCCION DE PANELA,Platos fuertes,Restaurante,REC-040,24329,11059,SI,321
+MEN-102,CHILLI DOG,Platos fuertes,Restaurante,REC-133,15000,,SI,336
+MEN-103,COSTILLA EN SALSA BBQ,Platos fuertes,Restaurante,REC-134,16797,7644,SI,316
+MEN-104,DESGRANADO GIRONA,Platos fuertes,Restaurante,REC-045,15000,,SI,338
+MEN-105,HAMBURGUESA CAFFETO,Platos fuertes,Restaurante,REC-135,14590,6632,SI,327
+MEN-106,HAMBURGUESA CLASICA,Platos fuertes,Restaurante,REC-136,14556,6616,SI,324
+MEN-107,HAMBURGUESA CRISPY,Platos fuertes,Restaurante,REC-137,16982,7720,SI,326
+MEN-108,HAMBURGUESA GIRONA,Platos fuertes,Restaurante,REC-138,14551,6614,SI,325
+MEN-109,KETO BURGUER,Platos fuertes,Restaurante,REC-050,15000,8860,SI,328
+MEN-110,LA CHULA,Platos fuertes,Restaurante,REC-051,15000,,SI,332
+MEN-111,LA MUNICH,Platos fuertes,Restaurante,REC-053,15000,,SI,330
+MEN-112,LOMO FINO EN CHIMICHURRI,Platos fuertes,Restaurante,REC-139,33888,15404,SI,313
+MEN-113,MEDALLO BURGUER,Platos fuertes,Restaurante,REC-140,15000,4959,SI,331
+MEN-114,MILANESA DE CERDO APANADA,Platos fuertes,Restaurante,REC-141,19617,8917,SI,315
+MEN-115,MOJARRA,Platos fuertes,Restaurante,REC-056,31031,14105,SI,319
+MEN-116,MUTE SANTANDEREANO,Platos fuertes,Restaurante,REC-142,298156,135526,SI,309
+MEN-117,PAPAS GIRONA,Platos fuertes,Restaurante,REC-058,15000,,SI,339
+MEN-118,PECHUGA EN SALSA DE CHAMPIÑONES,Platos fuertes,Restaurante,REC-143,19825,9012,SI,317
+MEN-119,PECHUGA EN SALSA DE MARACUYA,Platos fuertes,Restaurante,REC-059,15236,6926,SI,318
+MEN-120,PERRO BARBARRO,Platos fuertes,Restaurante,REC-144,15000,,SI,335
+MEN-121,PERRO FORASTERO,Platos fuertes,Restaurante,REC-062,15000,,SI,337
+MEN-122,PERRO GIRONES,Platos fuertes,Restaurante,REC-063,15000,,SI,334
+MEN-123,PHILLY POWER,Platos fuertes,Restaurante,REC-145,15000,4802,SI,329
+MEN-124,PICADA PARA CUATRO,Platos fuertes,Restaurante,REC-065,48070,21850,SI,323
+MEN-125,PUNTA DE ANCA,Platos fuertes,Restaurante,REC-146,35868,16304,SI,314
+MEN-126,QUESADILLA DE POLLO,Platos fuertes,Restaurante,REC-068,15000,,SI,341
+MEN-127,QUESADILLA MIXTA,Platos fuertes,Restaurante,REC-069,15000,,SI,342
+MEN-128,QUESUDA BURGUER,Platos fuertes,Restaurante,REC-147,15000,,SI,333
+MEN-129,SALCHIPAPA JUNIOR,Platos fuertes,Restaurante,REC-148,15000,,SI,343
+MEN-130,SALMON AL PESTO,Platos fuertes,Restaurante,REC-071,48237,21926,SI,322
+MEN-131,SANCOCHO TRADICIONAL,Platos fuertes,Restaurante,REC-149,160160,72800,SI,310

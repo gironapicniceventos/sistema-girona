@@ -2,9 +2,20 @@
 
 Este proyecto ya incluye integracion base para pruebas con Factus y conexion con `POS`.
 
+## 0) Sandbox Factus (referencia)
+
+- Consola web (pruebas): `https://app-sandbox.factus.com.co/login`
+- API (pruebas): `https://api-sandbox.factus.com.co`
+- **Seguridad:** no subas `Client ID`, `Client Secret`, usuario ni contraseña al repositorio. Si compartiste credenciales por un canal poco seguro, **rótalas** en el panel de Factus y actualiza tu `.env` / `.env.factus` local.
+
 ## 1) Configuracion inicial
 
 Completa variables en `girona-back/.env` tomando como base `girona-back/.env.example`.
+
+**Dos formas habituales:**
+
+- **Solo backend local (`uvicorn`):** todo en `girona-back/.env` (incluye OAuth).
+- **Stack Docker en la raíz del repo:** variables generales en `.env` y **credenciales OAuth** en `.env.factus` (copia de `.env.factus.example`; ese archivo está en `.gitignore`). Compose carga ambos en el servicio `backend`.
 
 Variables minimas obligatorias:
 
@@ -20,6 +31,22 @@ Variables recomendadas para iniciar rapido:
 - `FACTUS_NUMBERING_RANGE_ID` (si lo conoces)
 - `FACTUS_DEFAULT_CUSTOMER_EMAIL`
 - `FACTUS_DEFAULT_MUNICIPALITY_ID`
+
+### Prueba en localhost
+
+1. Asegura `FACTUS_ENABLED=1`, `FACTUS_ENVIRONMENT=sandbox` y URLs sandbox (`FACTUS_API_BASE_URL` / `FACTUS_TOKEN_URL` como en `.env.example`).
+2. Rellena OAuth (`FACTUS_CLIENT_ID`, `FACTUS_CLIENT_SECRET`, `FACTUS_USERNAME`, `FACTUS_PASSWORD`). En sandbox, `FACTUS_USERNAME` suele ser el **correo** de la cuenta Factus.
+3. Arranca el backend: con **Docker** (desde la raiz del repo), `docker compose up -d --build` tras crear `.env` requerido y opcionalmente `.env.factus`; con **solo uvicorn**, `cd girona-back && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000` (o el puerto que uses). Anota el **puerto en el host** (por defecto Docker: `BACKEND_HOST_PORT` en `.env`, si no esta, `8000`).
+4. Comprueba:
+
+```bash
+curl -s "http://localhost:PUERTO/factus/health" | jq
+curl -s "http://localhost:PUERTO/factus/numbering-ranges" | jq
+```
+
+Si `health` devuelve `ok: true`, copia un `id` de rango activo y ponlo en `FACTUS_NUMBERING_RANGE_ID` (en `.env` raíz con Docker, o en `girona-back/.env` con `uvicorn`).
+
+**Front en Docker:** `NEXT_PUBLIC_API_BASE_URL` debe apuntar al mismo puerto que publica el backend (Compose ya usa `http://localhost:${BACKEND_HOST_PORT:-8000}`). **Front en `npm run dev`:** en `.env.local` define `BACKEND_URL` / `NEXT_PUBLIC_API_BASE_URL` al puerto donde escuche FastAPI.
 
 ## 2) Probar conexion con Factus
 
@@ -61,8 +88,8 @@ Proxies Next.js:
 
 ### Numbering range ID
 
-- Es opcional en la UI solo si ya configuraste `FACTUS_NUMBERING_RANGE_ID` en `girona-back/.env`.
-- Si no existe ese valor por defecto, debes enviarlo en cada emision (ej. `8` en sandbox).
+- Es opcional en la UI solo si ya configuraste `FACTUS_NUMBERING_RANGE_ID` en el `.env` que use el backend (`girona-back/.env` con uvicorn, o `.env` en la raiz si corres Compose).
+- Si no existe ese valor por defecto, debes enviarlo en cada emision (ej. un `id` devuelto por `/factus/numbering-ranges` en sandbox).
 
 ## 5) Tabla de trazabilidad
 
