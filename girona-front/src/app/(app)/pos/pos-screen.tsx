@@ -23,7 +23,14 @@ import {
   buildPrefacturaPdf,
   buildThermalReceiptPdf,
 } from "@/lib/pos/prefactura-pdf";
-import { lineItemCartGross, lineItemCartUnit, orderCartTotals } from "@/lib/pos/prefactura";
+import {
+  lineItemCartGross,
+  lineItemCartUnit,
+  orderCartTotals,
+  orderDisplayCartTotal,
+  type PosPrefacturaItem,
+  type PosPrefacturaOrder,
+} from "@/lib/pos/prefactura";
 import {
   colombiaNow,
   getOrderRecencyLevel,
@@ -271,12 +278,13 @@ function menuItemSellPriceCop(price: string | number | null | undefined): number
 }
 
 /**
- * Base unitaria sin INC para líneas del pedido: precio_carta / (1 + INC).
- * La grilla del menú en POS sigue usando menuItemSellPriceCop (precio carta).
+ * Precio unitario de carta (lo que ve el cliente en la grilla).
+ * Internamente el backend guarda base neta; el INC se aplica al cobrar si el usuario lo marca.
  */
-function posOrderNetUnitFromMenuGrossCop(grossCop: number): number {
-  if (!Number.isFinite(grossCop) || grossCop <= 0) return 0;
-  return Math.round(grossCop / (1 + INC_RATE));
+function netUnitForApiFromGrossCartUnit(grossUnit: number): number {
+  const g = Number(grossUnit);
+  if (!Number.isFinite(g) || g <= 0) return 0;
+  return Math.round((g / (1 + INC_RATE)) * 100) / 100;
 }
 
 function isPosOrderableMenuItem(item: MenuItem): boolean {
@@ -1024,27 +1032,27 @@ export default function PosScreen() {
   );
   const cartTotals = useMemo(() => {
     let subtotal = 0;
-    let tax = 0;
+    const tax = 0;
     let discount = 0;
     let courtesy = 0;
     for (const item of cartItems) {
       const qty = item.quantity;
-      const price = item.unit_price;
-      const lineBase = price * qty;
-      const lineDiscount = Math.min(lineBase, Math.max(0, item.discount_rate ?? 0));
-      const lineSubtotal = Math.max(lineBase - lineDiscount, 0);
-      const lineTax = lineSubtotal * (item.tax_rate ?? 0);
-      subtotal += item.courtesy ? 0 : lineSubtotal;
-      tax += item.courtesy ? 0 : lineTax;
+      const grossUnit = item.unit_price;
+      const lineGross = grossUnit * qty;
+      const lineDiscount = Math.min(lineGross, Math.max(0, item.discount_rate ?? 0));
+      if (item.courtesy) {
+        courtesy += lineGross;
+        continue;
+      }
+      subtotal += Math.max(0, lineGross - lineDiscount);
       discount += lineDiscount;
-      courtesy += item.courtesy ? lineBase : 0;
     }
     return {
       subtotal,
       tax,
       discount,
       courtesy,
-      total: subtotal + tax,
+      total: subtotal,
     };
   }, [cartItems]);
 
@@ -1988,13 +1996,12 @@ export default function PosScreen() {
       const existing = prev[item.id];
       const nextQty = existing ? existing.quantity + 1 : 1;
       const gross = menuItemSellPriceCop(item.price);
-      const unitPrice = posOrderNetUnitFromMenuGrossCop(gross);
       return {
         ...prev,
         [item.id]: {
           menu_item_id: item.id,
           quantity: nextQty,
-          unit_price: unitPrice,
+          unit_price: gross,
           tax_rate: 0,
           discount_rate: null,
           courtesy: false,
@@ -2066,13 +2073,17 @@ export default function PosScreen() {
     try {
       const payloadBody = {
         items: cartItems.map((ci) => {
-          const lineBase = ci.unit_price * ci.quantity;
-          const discount_amount = Math.min(lineBase, Math.max(0, ci.discount_rate ?? 0));
+          const grossUnit = ci.unit_price;
+          const netUnit = netUnitForApiFromGrossCartUnit(grossUnit);
+          const lineGross = grossUnit * ci.quantity;
+          const discountRequested = Math.min(lineGross, Math.max(0, ci.discount_rate ?? 0));
+          const lineNet = netUnit * ci.quantity;
+          const discount_amount = Math.min(lineNet, discountRequested);
           return {
             menu_item_id: ci.menu_item_id,
             quantity: ci.quantity,
-            unit_price: ci.unit_price,
-            tax_rate: ci.tax_rate ?? 0,
+            unit_price: netUnit,
+            tax_rate: 0,
             discount_amount,
             courtesy: ci.courtesy,
             note: ci.note ?? null,
@@ -3296,15 +3307,17 @@ export default function PosScreen() {
                           {item.quantity} x {item.name}
                         </div>
                         <div className="mt-1 font-semibold text-primary">
-                          {formatMoney(Number(item.line_total))}
+                          {formatMoney(lineItemCartGross(item as PosPrefacturaItem))}
                         </div>
                       </div>
                     ))}
                     </div>
                   </div>
                   <div className="mt-2 border-t border-stroke pt-2 text-xs text-dark dark:border-dark-3 dark:text-white">
-                    Total actual:{" "}
-                    <span className="font-semibold">{formatMoney(Number(appendingBaseOrder.total))}</span>
+                    Total actual (carta):{" "}
+                    <span className="font-semibold">
+                      {formatMoney(orderDisplayCartTotal(appendingBaseOrder as PosPrefacturaOrder))}
+                    </span>
                   </div>
                 </div>
               ) : null}
@@ -3400,7 +3413,7 @@ export default function PosScreen() {
                           </label>
                         </div>
                         <div className="mt-2 text-xs text-body-color dark:text-dark-6">
-                          Total línea (base sin INC):{" "}
+                          Total línea (carta):{" "}
                           {formatMoney(
                             ci.courtesy
                               ? 0
@@ -3436,7 +3449,7 @@ export default function PosScreen() {
 
               <div className="mt-4 space-y-1 text-sm text-dark dark:text-white">
                 <p className="text-[11px] text-body-color dark:text-dark-6">
-                  Precios en comanda: base sin INC (8%). La carta del POS sigue mostrando el precio al cliente; el INC se suma al cobrar.
+                  Importes tal como en el menú del POS. El desglose IMPOCONSUMO 8% y el total final con INC solo se ven al pagar, si marcas &quot;Aplicar impuesto al consumo&quot;.
                 </p>
                 <div className="flex items-center justify-between">
                   <span>Subtotal</span>
@@ -3450,9 +3463,11 @@ export default function PosScreen() {
                   <span>Cortesías</span>
                   <span>{formatMoney(cartTotals.courtesy)}</span>
                 </div>
-                <p className="text-[11px] text-body-color dark:text-dark-6">{PREFACTURA_INC_FOOTNOTE}</p>
+                <p className="text-[11px] text-body-color dark:text-dark-6">
+                  Aún no se discrimina el INC en este total: coincide con la suma de precios de carta (menos descuentos y cortesías).
+                </p>
                 <div className="flex items-center justify-between text-base font-semibold">
-                  <span>Total</span>
+                  <span>Total comanda (carta)</span>
                   <span>{formatMoney(cartTotals.total)}</span>
                 </div>
               </div>
