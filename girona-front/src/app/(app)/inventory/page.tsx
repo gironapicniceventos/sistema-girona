@@ -2,6 +2,7 @@ import Breadcrumb from "@/components/Breadcrumbs/Breadcrumb";
 import Inventory from "@/components/Inventory";
 import InventoryManualBudget from "@/components/Inventory/inventory-manual-budget";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Suspense } from "react";
 
 export const metadata: Metadata = {
@@ -12,6 +13,14 @@ export default async function InventoryPage() {
   return (
     <>
       <Breadcrumb pageName="Inventario" />
+      <p className="mb-3 text-sm">
+        <Link
+          href="/inventory/cocina-picnic"
+          className="font-medium text-primary hover:underline"
+        >
+          Inventario Cocina / Barra — plantilla GIRONA PICNIC (editable)
+        </Link>
+      </p>
       <InventoryManualBudget />
       <Suspense fallback={<p className="text-sm text-body-color dark:text-dark-6">Cargando inventario…</p>}>
         <Inventory />

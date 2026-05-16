@@ -25,7 +25,10 @@ export const NAV_DATA = [
         title: "Inventario",
         url: "/inventory",
         icon: Icons.MdOutlineInventory,
-        items: [],
+        items: [
+          { title: "Inventario general", url: "/inventory" },
+          { title: "Inventario Cocina (Picnic)", url: "/inventory/cocina-picnic" },
+        ],
       },
       {
         title: "Compras - Proveedores",
