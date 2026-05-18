@@ -9,6 +9,7 @@ from sqlalchemy import case, exists, func
 from sqlalchemy.orm import Session, joinedload
 
 from . import db, models, schemas, withholding_co
+from .recipe_sync import RecipeSyncError, sync_recipe_items_from_rows
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
@@ -75,36 +76,15 @@ def _sync_recipe_line_items(
     db_session: Session,
     recipe: models.Recipe,
     ingredients: list[schemas.RecipeIngredientCreate],
-) -> None:
-    line_items: list[models.RecipeItem] = []
-    for ingredient in ingredients:
-        item_name = ingredient.name.strip()
-        if not item_name:
-            raise HTTPException(status_code=400, detail="Ingrediente inválido")
-
-        product: models.InventoryProduct | None = None
-        if ingredient.product_id is not None:
-            product = _get_product(db_session, ingredient.product_id)
-        else:
-            product = _find_product_by_name(db_session, name=item_name)
-
-        if not product:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"No hay producto de inventario para «{item_name}». "
-                    "Elegí el ingrediente en el buscador o creá el producto en Inventario."
-                ),
-            )
-
-        line_items.append(
-            models.RecipeItem(
-                product_id=product.id,
-                quantity=ingredient.quantity,
-                waste_pct=ingredient.waste_pct,
-            )
+) -> list[dict[str, object]]:
+    try:
+        return sync_recipe_items_from_rows(
+            db_session,
+            recipe=recipe,
+            rows=ingredients,
         )
-    recipe.items = line_items
+    except RecipeSyncError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _find_product_by_sku(
@@ -903,7 +883,8 @@ def create_recipe(payload: schemas.RecipeCreate, db_session: Session = Depends(d
     )
     db_session.add(recipe)
     db_session.flush()
-    _sync_recipe_line_items(db_session, recipe, payload.ingredients)
+    menu_item.ingredients = _sync_recipe_line_items(db_session, recipe, payload.ingredients)
+    db_session.add(menu_item)
     recipe_id_saved = recipe.id
     menu_item_id_saved = menu_item.id
     db_session.commit()
@@ -997,7 +978,7 @@ def update_recipe(
     recipe.unit = payload.unit.strip().upper() if payload.unit else None
     recipe.notes = payload.notes
 
-    _sync_recipe_line_items(db_session, recipe, payload.ingredients)
+    menu_item.ingredients = _sync_recipe_line_items(db_session, recipe, payload.ingredients)
 
     db_session.add(menu_item)
     db_session.add(recipe)
@@ -1053,6 +1034,102 @@ def delete_recipe(recipe_id: str, db_session: Session = Depends(db.get_db)):
     return None
 
 
+def _format_decimal(value: Decimal) -> str:
+    value = _as_decimal(value)
+    if value == value.to_integral_value():
+        return str(int(value))
+    normalized = f"{value.normalize():f}"
+    return normalized.rstrip("0").rstrip(".")
+
+
+def validate_pos_order_inventory_consumption(
+    db_session: Session,
+    order: models.PosOrder,
+) -> None:
+    issues: list[str] = []
+    required_by_product: dict[int, dict[str, object]] = {}
+
+    for item in order.items:
+        if item.courtesy:
+            continue
+        sold_qty = _as_decimal(item.quantity)
+        if sold_qty <= 0:
+            continue
+
+        recipe = (
+            db_session.query(models.Recipe)
+            .options(joinedload(models.Recipe.items).joinedload(models.RecipeItem.product))
+            .filter(models.Recipe.menu_item_id == item.menu_item_id)
+            .first()
+        )
+        if not recipe:
+            issues.append(f"{item.name}: no tiene receta vinculada al inventario")
+            continue
+        if not recipe.items:
+            issues.append(f"{item.name}: la receta no tiene ingredientes vinculados")
+            continue
+
+        yield_qty = _as_decimal(recipe.yield_quantity)
+        if yield_qty <= 0:
+            issues.append(f"{item.name}: la receta tiene rendimiento invalido")
+            continue
+
+        multiplier = sold_qty / yield_qty
+        for recipe_item in recipe.items:
+            product = recipe_item.product
+            if product is None:
+                product = (
+                    db_session.query(models.InventoryProduct)
+                    .filter(models.InventoryProduct.id == recipe_item.product_id)
+                    .first()
+                )
+            if product is None:
+                issues.append(f"{item.name}: un ingrediente no existe en inventario")
+                continue
+            if not product.is_active:
+                issues.append(f"{item.name}: {product.name} esta inactivo en inventario")
+                continue
+
+            unit_cost = _as_decimal(product.average_cost)
+            if unit_cost <= 0:
+                issues.append(f"{item.name}: {product.name} no tiene costo promedio cargado")
+
+            required = (
+                _as_decimal(recipe_item.quantity)
+                * multiplier
+                * (Decimal("1") + _as_decimal(recipe_item.waste_pct))
+            )
+            entry = required_by_product.get(product.id)
+            if entry is None:
+                required_by_product[product.id] = {
+                    "product": product,
+                    "required": required,
+                }
+            else:
+                entry["required"] = _as_decimal(entry["required"]) + required
+
+    for entry in required_by_product.values():
+        product = entry["product"]
+        if not isinstance(product, models.InventoryProduct):
+            continue
+        required = _as_decimal(entry["required"])
+        available = _as_decimal(product.on_hand)
+        if available < required:
+            issues.append(
+                f"{product.name}: stock insuficiente "
+                f"(requiere {_format_decimal(required)}, disponible {_format_decimal(available)})"
+            )
+
+    if issues:
+        visible = "; ".join(issues[:10])
+        if len(issues) > 10:
+            visible += f"; y {len(issues) - 10} problema(s) mas"
+        raise HTTPException(
+            status_code=409,
+            detail=f"No se puede cerrar la orden: {visible}.",
+        )
+
+
 def _consume_recipe_stock(
     db_session: Session,
     *,
@@ -1084,6 +1161,11 @@ def _consume_recipe_stock(
                 status_code=409,
                 detail=f"Stock insuficiente para {product.name}",
             )
+        if _as_decimal(product.average_cost) <= 0:
+            raise HTTPException(
+                status_code=409,
+                detail=f"No se puede consumir {product.name}: costo promedio no cargado",
+            )
 
         movement = models.StockMovement(
             product_id=product.id,
@@ -1109,6 +1191,7 @@ def apply_pos_order_inventory_consumption(
     sale_id: int,
 ) -> None:
     """Descuenta stock por cada línea del pedido según receta (si existe). Sin commit."""
+    validate_pos_order_inventory_consumption(db_session, order)
     for item in order.items:
         if item.courtesy:
             continue
@@ -1117,7 +1200,7 @@ def apply_pos_order_inventory_consumption(
             continue
         recipe = (
             db_session.query(models.Recipe)
-            .options(joinedload(models.Recipe.items))
+            .options(joinedload(models.Recipe.items).joinedload(models.RecipeItem.product))
             .filter(models.Recipe.menu_item_id == item.menu_item_id)
             .first()
         )

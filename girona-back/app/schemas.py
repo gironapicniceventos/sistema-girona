@@ -607,6 +607,16 @@ class SalesAdjustmentsByMonthOut(BaseModel):
     discount_count: int
 
 
+class SalesProfitSummaryOut(BaseModel):
+    sales_count: int
+    sales_total: Decimal
+    inventory_cost_total: Decimal
+    gross_profit: Decimal
+    gross_margin_pct: Decimal | None = None
+    sales_with_inventory_cost_count: int
+    sales_without_inventory_cost_count: int
+
+
 class MenuItemIngredient(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     unit: str | None = Field(default=None, max_length=20)
@@ -614,6 +624,7 @@ class MenuItemIngredient(BaseModel):
     weight: Decimal = Field(ge=0, description="Cantidad consumida (ej. gramos) por porción")
     price: Decimal
     total: Decimal | None = None
+    product_id: int | None = None
 
 
 class MenuItemBase(BaseModel):

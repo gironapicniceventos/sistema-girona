@@ -13,7 +13,10 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from . import db, models, schemas
-from .inventory import apply_pos_order_inventory_consumption
+from .inventory import (
+    apply_pos_order_inventory_consumption,
+    validate_pos_order_inventory_consumption,
+)
 
 router = APIRouter(prefix="/pos", tags=["pos"])
 logger = logging.getLogger("uvicorn.error")
@@ -568,6 +571,7 @@ def create_order(payload: schemas.PosOrderCreate, db_session: Session = Depends(
     order.total = total
     order.sent_at = now
 
+    validate_pos_order_inventory_consumption(db_session, order)
     db_session.add(order)
     db_session.commit()
     db_session.refresh(order)
@@ -694,6 +698,7 @@ def append_items_to_order(
         order.status = "sent"
         order.delivered_at = None
 
+    validate_pos_order_inventory_consumption(db_session, order)
     db_session.add(order)
     db_session.commit()
     db_session.refresh(order)
@@ -769,6 +774,7 @@ def mark_order_delivered(
             if not waiter:
                 raise HTTPException(status_code=404, detail="Mesero no encontrado")
             order.waiter_id = waiter.id
+        validate_pos_order_inventory_consumption(db_session, order)
         now = datetime.now(timezone.utc)
         order.delivered_at = now
         order.status = "delivered"
@@ -846,13 +852,14 @@ def mark_order_closed(
     apply_inc = bool(payload.apply_inc) if payload is not None else False
     _recompute_order_for_close(order, apply_inc=apply_inc)
 
-    now = datetime.now(timezone.utc)
-    order.closed_at = now
-    order.status = "closed"
-
     payment_method: str | None = None
     if payload is not None and payload.payment_method is not None:
         payment_method = _normalize_payment_method(payload.payment_method)
+
+    validate_pos_order_inventory_consumption(db_session, order)
+    now = datetime.now(timezone.utc)
+    order.closed_at = now
+    order.status = "closed"
 
     sale = _create_sale_from_order(
         db_session,

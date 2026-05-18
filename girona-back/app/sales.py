@@ -280,6 +280,70 @@ def export_sales_ventas_xlsx(
     return _xlsx_response(f"ventas-{suffix}.xlsx", build)
 
 
+@router.get("/summary/profit", response_model=schemas.SalesProfitSummaryOut)
+def sales_profit_summary(
+    period: str | None = None,
+    on_date: str | None = None,
+    date_from: str | None = Query(default=None),
+    date_to: str | None = Query(default=None),
+    db_session: Session = Depends(db.get_db),
+):
+    sales = _sales_query_filtered(
+        db_session,
+        period=period,
+        on_date=on_date,
+        date_from=date_from,
+        date_to=date_to,
+    ).all()
+    sale_ids = [sale.id for sale in sales]
+    sales_total = sum((sale.total for sale in sales), start=0)
+
+    cost_by_sale: dict[int, object] = {}
+    if sale_ids:
+        movement_rows = (
+            db_session.query(
+                models.StockMovement.reference_id,
+                func.coalesce(
+                    func.sum(
+                        func.abs(models.StockMovement.quantity)
+                        * func.coalesce(models.StockMovement.unit_cost, 0)
+                    ),
+                    0,
+                ).label("inventory_cost"),
+            )
+            .filter(
+                models.StockMovement.reference_type == "sale",
+                models.StockMovement.reference_id.in_(sale_ids),
+            )
+            .group_by(models.StockMovement.reference_id)
+            .all()
+        )
+        cost_by_sale = {
+            int(row.reference_id): row.inventory_cost
+            for row in movement_rows
+            if row.reference_id is not None
+        }
+
+    inventory_cost_total = sum(cost_by_sale.values(), start=0)
+    gross_profit = sales_total - inventory_cost_total
+    gross_margin_pct = None
+    if sales_total:
+        gross_margin_pct = (gross_profit / sales_total) * 100
+    sales_with_inventory_cost_count = sum(
+        1 for sale in sales if cost_by_sale.get(sale.id, 0) > 0
+    )
+
+    return schemas.SalesProfitSummaryOut(
+        sales_count=len(sales),
+        sales_total=sales_total,
+        inventory_cost_total=inventory_cost_total,
+        gross_profit=gross_profit,
+        gross_margin_pct=gross_margin_pct,
+        sales_with_inventory_cost_count=sales_with_inventory_cost_count,
+        sales_without_inventory_cost_count=len(sales) - sales_with_inventory_cost_count,
+    )
+
+
 @router.get("/{sale_id}", response_model=schemas.SaleOut)
 def get_sale(sale_id: int, db_session: Session = Depends(db.get_db)):
     sale = db_session.query(models.Sale).filter(models.Sale.id == sale_id).first()

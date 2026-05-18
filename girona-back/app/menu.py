@@ -5,6 +5,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from . import db, models, schemas
+from .recipe_sync import RecipeSyncError, sync_menu_item_recipe_from_ingredients
 
 router = APIRouter(prefix="/menu", tags=["menu"])
 
@@ -39,7 +40,10 @@ def _validate_recipe_ingredients_for_caja(ingredients) -> None:
             detail="Indica ingrediente, unidad y cantidad (peso) para cada fila de la receta.",
         )
     for item in ingredients:
-        w = getattr(item, "weight", None)
+        if isinstance(item, dict):
+            w = item.get("weight", item.get("quantity"))
+        else:
+            w = getattr(item, "weight", getattr(item, "quantity", None))
         if w is not None and _as_menu_decimal(w) <= 0:
             raise HTTPException(
                 status_code=400,
@@ -139,6 +143,15 @@ def create_item(payload: schemas.MenuItemCreate, db_session: Session = Depends(d
         ingredients=_normalize_ingredients(payload.ingredients),
     )
     db_session.add(item)
+    db_session.flush()
+    try:
+        item.ingredients = sync_menu_item_recipe_from_ingredients(
+            db_session,
+            menu_item=item,
+            ingredients=payload.ingredients or [],
+        )
+    except RecipeSyncError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     db_session.commit()
     db_session.refresh(item)
     return item
@@ -157,6 +170,7 @@ def update_item(
         raise HTTPException(status_code=404, detail="Menu item not found")
 
     data = payload.dict(exclude_unset=True)
+    raw_ingredients = data.pop("ingredients", None) if "ingredients" in data else None
     candidate_name = _format_name(data.get("name", item.name))
     candidate_category = _format_category(data.get("category", item.category))
     if candidate_name != item.name or candidate_category != item.category:
@@ -171,14 +185,20 @@ def update_item(
     if "category" in data:
         data["category"] = candidate_category
 
-    if "ingredients" in data:
-        _validate_recipe_ingredients_for_caja(data["ingredients"])
-        data["ingredients"] = _normalize_ingredients(data["ingredients"])
-
     for key, value in data.items():
         setattr(item, key, value)
 
     db_session.add(item)
+    if raw_ingredients is not None:
+        _validate_recipe_ingredients_for_caja(raw_ingredients)
+        try:
+            item.ingredients = sync_menu_item_recipe_from_ingredients(
+                db_session,
+                menu_item=item,
+                ingredients=raw_ingredients,
+            )
+        except RecipeSyncError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     db_session.commit()
     db_session.refresh(item)
     return item
