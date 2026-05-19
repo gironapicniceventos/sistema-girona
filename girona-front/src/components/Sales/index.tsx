@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { TableScroll } from "@/components/ui/scroll-table";
 import { useSession } from "@/components/Auth/SessionContext";
 import Link from "next/link";
-import { HiArrowUp, HiOutlineEyeOff } from "react-icons/hi";
+import { HiArrowUp } from "react-icons/hi";
 import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
@@ -1066,7 +1066,7 @@ export default function Sales(props?: { historyOnly?: boolean }) {
                           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-stroke text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
                         >
                           <span className="sr-only">Ocultar venta solo en esta sesión</span>
-                          <HiOutlineEyeOff className="size-5" aria-hidden />
+                          <HiArrowUp className="size-5" aria-hidden />
                         </button>
                       </TableCell>
                     ) : null}

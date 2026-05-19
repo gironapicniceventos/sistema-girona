@@ -768,48 +768,11 @@ function ViewOrderModal({
   deleteSuccessMessage: string | null;
 }) {
   const [tipInput, setTipInput] = useState("");
-  const [unitPriceInputs, setUnitPriceInputs] = useState<Record<number, string>>({});
-
-  const itemsFingerprint = order
-    ? `${order.id}:${order.items.map((i) => i.id).join(",")}`
-    : "";
-
-  useEffect(() => {
-    if (!order || !itemsFingerprint) return;
-    setUnitPriceInputs((prev) => {
-      const next: Record<number, string> = {};
-      for (const it of order.items) {
-        const defUnit = Math.round(lineItemCartUnit(it as PosPrefacturaItem));
-        next[it.id] = prev[it.id] ?? String(defUnit);
-      }
-      return next;
-    });
-  }, [order, itemsFingerprint]);
 
   useEffect(() => {
     if (!order) return;
     setTipInput(String(orderCartTotals(order as PosPrefacturaOrder).suggestedTip));
   }, [order?.id]);
-
-  const lineUnitCartOverrides = useMemo(() => {
-    if (!order) return undefined;
-    const out: Record<number, number> = {};
-    let anyDiff = false;
-    for (const it of order.items) {
-      if (it.courtesy) continue;
-      const raw = unitPriceInputs[it.id];
-      if (raw === undefined || String(raw).trim() === "") continue;
-      const n = Number(String(raw).replace(",", "."));
-      if (!Number.isFinite(n) || n < 0) continue;
-      const rounded = Math.round(n);
-      const def = Math.round(lineItemCartUnit(it as PosPrefacturaItem));
-      if (rounded !== def) {
-        anyDiff = true;
-        out[it.id] = rounded;
-      }
-    }
-    return anyDiff ? out : undefined;
-  }, [order, unitPriceInputs]);
 
   if (!order) return null;
   const activeOrder = order;
@@ -821,15 +784,21 @@ function ViewOrderModal({
   const tipForCalc = Number.isFinite(tipParsed) ? Math.max(0, tipParsed) : undefined;
 
   function downloadPrefactura() {
-    buildPrefacturaPdf(activeOrder as PosPrefacturaOrder, resolvedTable, status.label, tipForCalc, {
-      lineUnitCartOverrides,
-    }).save(`prefactura-pedido-${activeOrder.id}.pdf`);
+    buildPrefacturaPdf(
+      activeOrder as PosPrefacturaOrder,
+      resolvedTable,
+      status.label,
+      tipForCalc,
+    ).save(`prefactura-pedido-${activeOrder.id}.pdf`);
   }
 
   function printPrefactura() {
-    buildPrefacturaPdf(activeOrder as PosPrefacturaOrder, resolvedTable, status.label, tipForCalc, {
-      lineUnitCartOverrides,
-    }).output("dataurlnewwindow");
+    buildPrefacturaPdf(
+      activeOrder as PosPrefacturaOrder,
+      resolvedTable,
+      status.label,
+      tipForCalc,
+    ).output("dataurlnewwindow");
   }
   return (
     <div
@@ -877,7 +846,7 @@ function ViewOrderModal({
             {onEscPosPrint ? (
               <button
                 type="button"
-                onClick={() => onEscPosPrint(activeOrder, tipForCalc, lineUnitCartOverrides)}
+                onClick={() => onEscPosPrint(activeOrder, tipForCalc, undefined)}
                 className="inline-flex items-center gap-1 rounded-lg border border-stroke px-2.5 py-1.5 text-xs font-semibold text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
               >
                 <HiLightningBolt className="h-4 w-4" />
@@ -949,25 +918,16 @@ function ViewOrderModal({
                   {item.courtesy ? (
                     <p className="text-xs font-medium text-dark-6 dark:text-dark-6">Cortesía — sin cargo</p>
                   ) : (
-                    <label className="flex flex-wrap items-center gap-2 text-xs font-medium text-body-color dark:text-dark-6">
-                      Precio (COP / unidad, carta)
-                      <input
-                        type="number"
-                        min={0}
-                        step={100}
-                        value={unitPriceInputs[item.id] ?? ""}
-                        onChange={(e) =>
-                          setUnitPriceInputs((prev) => ({ ...prev, [item.id]: e.target.value }))
-                        }
-                        className="min-w-[7rem] max-w-[10rem] rounded-md border border-stroke bg-white px-2 py-1 text-right text-sm text-dark outline-none dark:border-dark-3 dark:bg-gray-dark dark:text-white"
-                      />
-                    </label>
+                    <p className="text-xs font-medium text-body-color dark:text-dark-6">
+                      Precio carta / unidad:{" "}
+                      <span className="tabular-nums text-dark dark:text-white">
+                        {formatMoney(lineItemCartUnit(item as PosPrefacturaItem))}
+                      </span>
+                    </p>
                   )}
                   <div className="text-xs font-semibold text-dark dark:text-white">
                     Total línea:{" "}
-                    {formatMoney(
-                      prefacturaDisplayLineGross(item as PosPrefacturaItem, lineUnitCartOverrides),
-                    )}
+                    {formatMoney(prefacturaDisplayLineGross(item as PosPrefacturaItem))}
                   </div>
                 </div>
               </div>
@@ -978,7 +938,6 @@ function ViewOrderModal({
             order={activeOrder}
             tipInput={tipInput}
             onTipInputChange={setTipInput}
-            lineUnitCartOverrides={lineUnitCartOverrides}
           />
           {canPayOrder ? (
             <button
@@ -988,11 +947,7 @@ function ViewOrderModal({
                 const tipToCharge =
                   Number.isFinite(fromInput) && fromInput >= 0
                     ? Math.round(fromInput)
-                    : Math.round(
-                        orderCartTotals(activeOrder as PosPrefacturaOrder, {
-                          lineUnitCartOverrides,
-                        }).tipAmount,
-                      );
+                    : Math.round(orderCartTotals(activeOrder as PosPrefacturaOrder).tipAmount);
                 onPayOrder(activeOrder, tipToCharge);
               }}
               className="mt-2 w-full rounded-lg bg-red px-4 py-2 text-sm font-semibold text-white hover:bg-red/90"
