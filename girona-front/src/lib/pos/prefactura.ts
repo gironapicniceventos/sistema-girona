@@ -49,7 +49,11 @@ export function lineItemBase(item: PosPrefacturaItem): number {
   return Math.max(u * q - d, 0);
 }
 
-/** Valor de línea como en la carta (IVA incluido, sin discriminar). */
+/** Valor de línea como precio carta que vio el cliente en toma de pedidos (INC incluido en ese precio).
+ * Con `tax_rate` 0, `unit_price` / `line_subtotal` / `line_total` en API son solo la base antes de aplicar INC
+ * discriminado en cierre — no debe mostrarse ese neto como "carta".
+ * Con `tax_rate` > 0 (cuenta recomputada en cierre con INC), `line_total` ya es base + impuesto línea.
+ */
 export function lineItemCartGross(item: PosPrefacturaItem): number {
   if (item.courtesy) return 0;
   const tr = Number(item.tax_rate);
@@ -58,8 +62,6 @@ export function lineItemCartGross(item: PosPrefacturaItem): number {
     if (Number.isFinite(lt)) return lt;
     return lineItemBase(item) + Math.round(lineItemBase(item) * tr);
   }
-  const lt = Number(item.line_total);
-  if (Number.isFinite(lt) && lt > 0) return lt;
   return Math.round(lineItemBase(item) * (1 + POS_INC_RATE));
 }
 
