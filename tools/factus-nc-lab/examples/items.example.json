@@ -5,11 +5,11 @@
     "quantity": 1,
     "discount_rate": 0,
     "price": 1000.0,
-    "tax_rate": "19.00",
+    "tax_rate": "8.00",
     "unit_measure_id": 70,
     "standard_code_id": 1,
     "is_excluded": 0,
-    "tribute_id": 1,
+    "tribute_id": 2,
     "withholding_taxes": []
   }
 ]

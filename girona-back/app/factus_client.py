@@ -16,6 +16,9 @@ from typing import Any
 from . import models
 
 INC_RATE_FRACTION = Decimal("0.08")
+# tributo ítem Factus: usar el ID del endpoint de tributos de productos (no el código DIAN).
+# Ejemplo oficial de lookups: id 1 → IVA (código DIAN "01"); id 2 → INC ("04").
+FACTUS_ITEM_TRIBUTE_ID_DEFAULT_INC = 2
 
 
 def _to_bool(value: str | None, default: bool = False) -> bool:
@@ -149,7 +152,8 @@ class FactusSettings:
             customer_tribute_id=_to_int(os.getenv("FACTUS_CUSTOMER_TRIBUTE_ID"), 21) or 21,
             item_standard_code_id=_to_int(os.getenv("FACTUS_ITEM_STANDARD_CODE_ID"), 1) or 1,
             item_unit_measure_id=_to_int(os.getenv("FACTUS_ITEM_UNIT_MEASURE_ID"), 70) or 70,
-            item_tribute_id=_to_int(os.getenv("FACTUS_ITEM_TRIBUTE_ID"), 1) or 1,
+            item_tribute_id=_to_int(os.getenv("FACTUS_ITEM_TRIBUTE_ID"), FACTUS_ITEM_TRIBUTE_ID_DEFAULT_INC)
+            or FACTUS_ITEM_TRIBUTE_ID_DEFAULT_INC,
             operation_type=_to_int(os.getenv("FACTUS_OPERATION_TYPE"), 10) or 10,
             establishment_name=(os.getenv("FACTUS_ESTABLISHMENT_NAME") or "").strip() or None,
             establishment_address=(os.getenv("FACTUS_ESTABLISHMENT_ADDRESS") or "").strip() or None,

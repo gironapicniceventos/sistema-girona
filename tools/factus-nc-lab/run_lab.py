@@ -355,7 +355,7 @@ def cn_items_from_ubl_invoice_xml(xml_bytes: bytes) -> list[dict[str, Any]]:
 
     unit_measure_id = _to_int(os.getenv("FACTUS_ITEM_UNIT_MEASURE_ID"), 70) or 70
     standard_code_id = _to_int(os.getenv("FACTUS_ITEM_STANDARD_CODE_ID"), 1) or 1
-    tribute_id = _to_int(os.getenv("FACTUS_ITEM_TRIBUTE_ID"), 1) or 1
+    tribute_id = _to_int(os.getenv("FACTUS_ITEM_TRIBUTE_ID"), 2) or 2
 
     items: list[dict[str, Any]] = []
     for line in lines:
@@ -429,15 +429,15 @@ def _one_item_from_env() -> list[dict[str, Any]]:
     name = (os.getenv("LAB_ITEM_NAME") or "Item laboratorio").strip()
     qty = _to_int(os.getenv("LAB_ITEM_QUANTITY"), 1) or 1
     price = _float_safe(os.getenv("LAB_ITEM_PRICE"), 1000.0)
-    tax_rate_raw = os.getenv("LAB_ITEM_TAX_RATE", "19.00").strip()
+    tax_rate_raw = os.getenv("LAB_ITEM_TAX_RATE", "8.00").strip()
     try:
         tax_dec = Decimal(str(tax_rate_raw)).quantize(Decimal("0.01"))
     except Exception:
-        tax_dec = Decimal("19.00")
+        tax_dec = Decimal("8.00")
     tax_rate_percent = float(tax_dec)
     unit_measure_id = _to_int(os.getenv("FACTUS_ITEM_UNIT_MEASURE_ID"), 70) or 70
     standard_code_id = _to_int(os.getenv("FACTUS_ITEM_STANDARD_CODE_ID"), 1) or 1
-    tribute_id = _to_int(os.getenv("FACTUS_ITEM_TRIBUTE_ID"), 1) or 1
+    tribute_id = _to_int(os.getenv("FACTUS_ITEM_TRIBUTE_ID"), 2) or 2
     discount = _float_safe(os.getenv("LAB_ITEM_DISCOUNT_RATE"), 0.0)
     is_excluded = 1 if tax_rate_percent <= 0 else 0
     return [
