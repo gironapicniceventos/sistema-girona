@@ -935,15 +935,14 @@ export default function Sales(props?: { historyOnly?: boolean }) {
         ) : salesVisibleInHistory.length === 0 ? (
           <div className="space-y-2">
             <p className="text-sm text-body">
-              Ocultaste todas las ventas de esta vista. Usá el ícono de ojo tachado arriba a la derecha para
-              mostrarlas de nuevo.
+              QUITAR
             </p>
             <button
               type="button"
               onClick={restoreAllHiddenHistorySales}
               className="rounded-lg border border-stroke px-3 py-1.5 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
             >
-              Mostrar ocultas
+              QUITAR
             </button>
           </div>
         ) : (
@@ -980,8 +979,8 @@ export default function Sales(props?: { historyOnly?: boolean }) {
                         type="button"
                         onClick={() => hideHistorySaleRow(sale.id)}
                         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-stroke text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
-                        title="Ocultar esta venta de la lista"
-                        aria-label="Ocultar venta de la lista"
+                        title=""
+                        aria-label=""
                       >
                         <HiChevronUp className="size-5" aria-hidden />
                       </button>

@@ -26,11 +26,12 @@ export function Header() {
         {isMobile ? (
           <Link href="/" className="hidden shrink-0 min-[420px]:block">
             <Image
-              src="/images/logo/LogoGP.svg"
+              src="/images/logo/LogoGP.png"
               width={32}
               height={32}
               alt=""
               role="presentation"
+              className="object-contain"
             />
           </Link>
         ) : null}
