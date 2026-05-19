@@ -14,6 +14,7 @@ from .factus_client import (
     build_credit_note_void_invoice_payload,
     create_bill,
     create_credit_note_validate,
+    credit_note_validate_response_ok,
     download_bill_pdf,
     extract_credit_note_meta,
     list_numbering_ranges,
@@ -450,6 +451,12 @@ def create_factus_credit_note(
             send_email=body.send_email,
         )
         cn_response = create_credit_note_validate(settings, cn_payload)
+        ok_cn, cn_err = credit_note_validate_response_ok(cn_response)
+        if not ok_cn:
+            raise HTTPException(
+                status_code=502,
+                detail=cn_err or "Factus no registró una nota crédito válida.",
+            )
         merged: dict = dict(invoice.response_payload) if isinstance(invoice.response_payload, dict) else {}
         merged["credit_note"] = cn_response
         invoice.response_payload = merged

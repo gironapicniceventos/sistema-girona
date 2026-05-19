@@ -477,6 +477,52 @@ def build_bill_payload(
     return payload
 
 
+def credit_note_validate_response_ok(cn_response: Any) -> tuple[bool, str | None]:
+    """
+    True sólo si Factus incluyó un credit_note con id en data (respuesta crear-y-validar).
+    Evita marcar factura como voided en BD si la API devolvió 2xx pero sin NC válida.
+    """
+    if not isinstance(cn_response, dict):
+        return False, "Respuesta de Factus no es JSON de objeto."
+
+    data = cn_response.get("data")
+    if not isinstance(data, dict):
+        message = _extract_message(cn_response) or (
+            "Factus no incluyó 'data' válida en la respuesta de la nota crédito."
+        )
+        return False, message
+
+    cnote = data.get("credit_note")
+    if not isinstance(cnote, dict):
+        message = _extract_message(cn_response) or (
+            "Factus no incluyó 'data.credit_note' en la respuesta de la nota crédito."
+        )
+        return False, message
+
+    raw_id = cnote.get("id")
+    try:
+        parsed_id = int(raw_id) if raw_id is not None else None
+    except (TypeError, ValueError):
+        parsed_id = None
+    if not parsed_id:
+        suffix = ""
+        errs = cnote.get("errors")
+        if isinstance(errs, list) and errs:
+            first_err = errs[0]
+            if isinstance(first_err, str) and first_err.strip():
+                suffix = f" ({first_err.strip()})"
+            elif isinstance(first_err, dict):
+                extracted = _extract_message(first_err)
+                if extracted:
+                    suffix = f" ({extracted})"
+        message = _extract_message(cn_response) or (
+            "Factus respondió pero la nota crédito no tiene id válido (no registrada)." + suffix
+        )
+        return False, message
+
+    return True, None
+
+
 def build_credit_note_void_invoice_payload(
     settings: FactusSettings,
     sale: models.Sale,
@@ -510,6 +556,14 @@ def build_credit_note_void_invoice_payload(
         now = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
         reference_code = f"CN-SALE-{sale.id}-{now}"
 
+    invoice_req = invoice.request_payload if isinstance(invoice.request_payload, dict) else {}
+    fallback_items = _build_items_payload(settings, sale)
+    persisted_items = invoice_req.get("items")
+    if isinstance(persisted_items, list) and len(persisted_items) > 0:
+        items_payload = persisted_items
+    else:
+        items_payload = fallback_items
+
     payload: dict[str, Any] = {
         "numbering_range_id": effective_range,
         "correction_concept_code": settings.credit_note_correction_code,
@@ -518,18 +572,22 @@ def build_credit_note_void_invoice_payload(
         "reference_code": reference_code,
         "payment_method_code": settings.payment_method_code,
         "send_email": bool(send_email),
-        "items": _build_items_payload(settings, sale),
+        "items": items_payload,
     }
     if observation and str(observation).strip():
         payload["observation"] = str(observation).strip()[:250]
-    invoice_req = invoice.request_payload
     if (
         isinstance(invoice_req, dict)
         and isinstance(invoice_req.get("allowance_charges"), list)
         and invoice_req["allowance_charges"]
     ):
         payload["allowance_charges"] = invoice_req["allowance_charges"]
-    if (
+    persisted_establishment = (
+        invoice_req.get("establishment") if isinstance(invoice_req.get("establishment"), dict) else None
+    )
+    if persisted_establishment:
+        payload["establishment"] = persisted_establishment
+    elif (
         settings.establishment_name
         and settings.establishment_address
         and settings.establishment_phone

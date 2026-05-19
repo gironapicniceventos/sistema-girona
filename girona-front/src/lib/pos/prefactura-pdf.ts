@@ -2,24 +2,30 @@ import jsPDF from "jspdf";
 import { toColombiaTime } from "@/lib/pos/order-recency";
 import {
   formatPlainCop,
-  lineItemCartGross,
-  lineItemCartUnit,
   orderCartTotals,
   POS_SUGGESTED_TIP_RATE,
+  prefacturaDisplayLineGross,
+  prefacturaDisplayUnit,
   type PosPrefacturaOrder,
 } from "@/lib/pos/prefactura";
 
 const THERMAL_PAGE_MM = { w: 72, h: 200 } as const;
+
+export type PrefacturaPdfExtras = {
+  lineUnitCartOverrides?: Record<number, number>;
+};
 
 export function buildPrefacturaPdf(
   order: PosPrefacturaOrder,
   tableName: string,
   statusLabel: string,
   tipAmount?: number | null,
+  extras?: PrefacturaPdfExtras,
 ) {
+  const ovs = extras?.lineUnitCartOverrides;
   const doc = new jsPDF();
   const createdAt = toColombiaTime(order.opened_at);
-  const ct = orderCartTotals(order, { tipAmount });
+  const ct = orderCartTotals(order, { tipAmount, lineUnitCartOverrides: ovs });
 
   doc.setFontSize(14);
   doc.text("PREFACTURA", 14, 14);
@@ -32,10 +38,8 @@ export function buildPrefacturaPdf(
     14,
     34,
   );
-  doc.setFontSize(8);
-  doc.text("Precios de carta (IVA incluido). Sin desglose fiscal en este documento.", 14, 40);
 
-  let y = 48;
+  let y = 42;
   doc.setFontSize(7);
   doc.text("#", 12, y);
   doc.text("Cod", 18, y);
@@ -54,8 +58,8 @@ export function buildPrefacturaPdf(
       y = 16;
     }
     const qty = Math.max(1, Number(item.quantity) || 1);
-    const grossUnit = lineItemCartUnit(item);
-    const grossLine = lineItemCartGross(item);
+    const grossUnit = prefacturaDisplayUnit(item, ovs);
+    const grossLine = prefacturaDisplayLineGross(item, ovs);
     const descAmt = Number(item.discount_amount) || 0;
 
     doc.text(String(index + 1), 12, y);
@@ -111,7 +115,9 @@ export function buildThermalReceiptPdf(
   tableName: string,
   statusLabel: string,
   tipAmount?: number | null,
+  extras?: PrefacturaPdfExtras,
 ) {
+  const ovs = extras?.lineUnitCartOverrides;
   const doc = new jsPDF({
     orientation: "p",
     unit: "mm",
@@ -121,7 +127,7 @@ export function buildThermalReceiptPdf(
   const pageW = THERMAL_PAGE_MM.w;
   const maxTextW = pageW - margin * 2;
   const createdAt = toColombiaTime(order.opened_at);
-  const ct = orderCartTotals(order, { tipAmount });
+  const ct = orderCartTotals(order, { tipAmount, lineUnitCartOverrides: ovs });
 
   let y = 6;
   const lh = 3.5;
@@ -171,8 +177,8 @@ export function buildThermalReceiptPdf(
 
   order.items.forEach((item, index) => {
     const qty = Math.max(1, Number(item.quantity) || 1);
-    const grossUnit = lineItemCartUnit(item);
-    const grossLine = lineItemCartGross(item);
+    const grossUnit = prefacturaDisplayUnit(item, ovs);
+    const grossLine = prefacturaDisplayLineGross(item, ovs);
     const head = `${index + 1}. [${item.menu_item_id}]`;
     const nameLines = doc.splitTextToSize(String(item.name), maxTextW - 1) as string[];
     needSpace(nameLines.length * lh + lh * 3.5);
@@ -231,7 +237,7 @@ export function buildThermalReceiptPdf(
   doc.setFont("helvetica", "normal");
   doc.setFontSize(6.3);
   const foot = doc.splitTextToSize(
-    `Pedido #${order.id}. Precios de carta. IVA se discrimina solo en factura electronica.`,
+    `Pedido #${order.id}. Documento informativo. Propina opcional; IVA discriminado solo en factura electronica.`,
     maxTextW,
   ) as string[];
   needSpace(foot.length * lh);

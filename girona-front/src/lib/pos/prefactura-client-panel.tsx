@@ -19,21 +19,22 @@ export function PrefacturaClientePanel({
   order,
   tipInput,
   onTipInputChange,
+  lineUnitCartOverrides,
 }: {
   order: PosPrefacturaOrder;
   tipInput: string;
   onTipInputChange: (value: string) => void;
+  lineUnitCartOverrides?: Record<number, number>;
 }) {
   const tipParsed = Number(tipInput);
   const tipForCalc = Number.isFinite(tipParsed) ? Math.max(0, tipParsed) : undefined;
-  const ct = orderCartTotals(order, { tipAmount: tipForCalc });
+  const ct = orderCartTotals(order, { tipAmount: tipForCalc, lineUnitCartOverrides });
 
   return (
     <div className="rounded-lg border border-stroke bg-gray-1 p-3 dark:border-dark-3 dark:bg-dark-2">
       <h4 className="mb-2 text-sm font-semibold text-dark dark:text-white">Pre-factura (cliente)</h4>
       <p className="mb-2 text-xs text-body-color dark:text-dark-6">
-        Precios de carta (INC incluido, sin descontar). Propina sugerida al{" "}
-        {Math.round(POS_SUGGESTED_TIP_RATE * 100)}%; el cliente decide si la paga.
+        Propina sugerida al {Math.round(POS_SUGGESTED_TIP_RATE * 100)}%; el cliente decide si la paga.
       </p>
       <div className="space-y-1 text-sm text-dark dark:text-white">
         <div className="flex items-center justify-between">
