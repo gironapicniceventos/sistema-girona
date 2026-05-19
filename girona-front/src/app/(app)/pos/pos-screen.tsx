@@ -2133,8 +2133,8 @@ export default function PosScreen() {
         setAppendingOrderId(null);
         setMode("idle");
         setSelectedTableId(null);
+        setViewOrder(null);
         setSubmitStatus({ kind: "idle" });
-        setViewOrder(updatedOrder);
       } else {
         setAppendingOrderId(null);
         setMode("idle");
