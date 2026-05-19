@@ -12,8 +12,9 @@ import {
 import SalesBreakdownPanel from "@/components/Sales/sales-breakdown-panel";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TableScroll } from "@/components/ui/scroll-table";
+import { useSession } from "@/components/Auth/SessionContext";
 import Link from "next/link";
-import { HiChevronUp, HiOutlineEyeOff } from "react-icons/hi";
+import { HiArrowUp, HiOutlineEyeOff } from "react-icons/hi";
 import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
@@ -121,13 +122,50 @@ const TIME_FILTER_OPTIONS_HISTORY: Array<{ value: TimeFilter; label: string }> =
   { value: "custom", label: "Rango personalizado (días)" },
 ];
 
-const HIDDEN_SALE_IDS_KEY = "girona.salesHistory.hiddenSaleIds";
+const HIDDEN_SALE_IDS_KEY_LEGACY = "girona.salesHistory.hiddenSaleIds";
 
-function loadHiddenSaleIdsFromStorage(): Set<number> {
+function hiddenSaleIdsStorageKey(email: string | null | undefined): string {
+  const normalized = typeof email === "string" ? email.trim().toLowerCase() : "";
+  const slug = normalized || "__session__";
+  return `girona.salesHistory.hiddenSaleIds.v2.${slug}`;
+}
+
+function rolesThatAlwaysSeeFullSalesHistory(role?: string | null): boolean {
+  const r = (role ?? "").trim().toLowerCase();
+  return r === "full_access" || r === "gerente" || r === "admin";
+}
+
+function emailsThatAlwaysSeeFullSalesHistory(email?: string | null): boolean {
+  const raw =
+    typeof process.env.NEXT_PUBLIC_SALES_HISTORY_OWNER_EMAILS === "string"
+      ? process.env.NEXT_PUBLIC_SALES_HISTORY_OWNER_EMAILS
+      : "";
+  const list = raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  if (!list.length || !email) return false;
+  return list.includes(email.trim().toLowerCase());
+}
+
+function loadHiddenSaleIdsFromStorage(primaryKey: string): Set<number> {
   if (typeof window === "undefined") return new Set();
   try {
-    const raw = localStorage.getItem(HIDDEN_SALE_IDS_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
+    let raw = localStorage.getItem(primaryKey);
+    if (!raw) {
+      raw = localStorage.getItem(HIDDEN_SALE_IDS_KEY_LEGACY);
+      if (!raw) return new Set();
+      const parsed = JSON.parse(raw);
+      const set = new Set(
+        Array.isArray(parsed)
+          ? parsed.filter((x): x is number => typeof x === "number" && Number.isFinite(x))
+          : [],
+      );
+      persistHiddenSaleIds(primaryKey, set);
+      localStorage.removeItem(HIDDEN_SALE_IDS_KEY_LEGACY);
+      return set;
+    }
+    const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return new Set();
     return new Set(
       parsed.filter((x): x is number => typeof x === "number" && Number.isFinite(x)),
@@ -137,9 +175,20 @@ function loadHiddenSaleIdsFromStorage(): Set<number> {
   }
 }
 
-function persistHiddenSaleIds(ids: Set<number>) {
+function persistHiddenSaleIds(primaryKey: string, ids: Set<number>) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(HIDDEN_SALE_IDS_KEY, JSON.stringify([...ids]));
+  localStorage.setItem(primaryKey, JSON.stringify([...ids]));
+}
+
+function pruneHiddenIdsForSaleList(ids: Set<number>, visibleSaleIds: number[]): Set<number> {
+  const stillThere = new Set(visibleSaleIds);
+  let changed = false;
+  const next = new Set<number>();
+  ids.forEach((id) => {
+    if (stillThere.has(id)) next.add(id);
+    else changed = true;
+  });
+  return changed ? next : ids;
 }
 
 const PAYMENT_METHOD_LABEL: Record<string, string> = {
@@ -305,7 +354,26 @@ function TimeFilterSelect<T extends string>({
 }
 
 export default function Sales(props?: { historyOnly?: boolean }) {
-  const historyOnly = props?.historyOnly === true;
+  const { me } = useSession();
+  /** Cajero solo ve historial (mismo layout que `/sales/historial`), incluso si montaran `/sales`. */
+  const effectiveHistoryOnly = useMemo(
+    () => props?.historyOnly === true || me?.role === "caja_mesero",
+    [props?.historyOnly, me?.role],
+  );
+
+  /** Ocultamiento por fila: solo página historial, solo cuentas no dueño/admin. Laura/Jenny/Jeffer pueden listarse en NEXT_PUBLIC_SALES_HISTORY_OWNER_EMAILS. */
+  const hiddenStoragePrimaryKey = useMemo(
+    () => hiddenSaleIdsStorageKey(me?.email),
+    [me?.email],
+  );
+
+  const canUseCashierRowHidingUi = useMemo(() => {
+    if (!effectiveHistoryOnly || !me) return false;
+    if (rolesThatAlwaysSeeFullSalesHistory(me.role)) return false;
+    if (emailsThatAlwaysSeeFullSalesHistory(me.email)) return false;
+    return true;
+  }, [effectiveHistoryOnly, me]);
+
   const [sales, setSales] = useState<Sale[]>([]);
   const [salesByProduct, setSalesByProduct] = useState<SalesByProduct[]>([]);
   const [salesByCategory, setSalesByCategory] = useState<SalesByCategory[]>([]);
@@ -333,9 +401,7 @@ export default function Sales(props?: { historyOnly?: boolean }) {
   const [customDateTo, setCustomDateTo] = useState(() =>
     dayjs().tz(COLOMBIA_TZ).format("YYYY-MM-DD"),
   );
-  const [hiddenSaleIds, setHiddenSaleIds] = useState<Set<number>>(() =>
-    loadHiddenSaleIdsFromStorage(),
-  );
+  const [hiddenSaleIds, setHiddenSaleIds] = useState<Set<number>>(() => new Set());
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [sendingEmailSaleId, setSendingEmailSaleId] = useState<number | null>(null);
@@ -344,6 +410,25 @@ export default function Sales(props?: { historyOnly?: boolean }) {
   const [purchasesLoading, setPurchasesLoading] = useState(true);
   const [exportingExcel, setExportingExcel] = useState(false);
   const [exportExcelError, setExportExcelError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!canUseCashierRowHidingUi) {
+      setHiddenSaleIds(new Set());
+      return;
+    }
+    setHiddenSaleIds(loadHiddenSaleIdsFromStorage(hiddenStoragePrimaryKey));
+  }, [canUseCashierRowHidingUi, hiddenStoragePrimaryKey]);
+
+  useEffect(() => {
+    if (!canUseCashierRowHidingUi || sales.length === 0) return;
+    const ids = sales.map((s) => s.id);
+    setHiddenSaleIds((prev) => {
+      const pruned = pruneHiddenIdsForSaleList(prev, ids);
+      if (pruned === prev) return prev;
+      persistHiddenSaleIds(hiddenStoragePrimaryKey, pruned);
+      return pruned;
+    });
+  }, [sales, canUseCashierRowHidingUi, hiddenStoragePrimaryKey]);
 
   const withPeriodParam = useCallback((basePath: string, period: SummaryTimeFilter) => {
     return `${basePath}?period=${encodeURIComponent(period)}`;
@@ -399,7 +484,7 @@ export default function Sales(props?: { historyOnly?: boolean }) {
     setLoading(true);
     setErrorMessage(null);
     try {
-      if (historyOnly) {
+      if (effectiveHistoryOnly) {
         setPurchasesLoading(false);
         const salesResponse = await fetch(buildSalesListUrl(), { cache: "no-store" });
         const salesPayload = await safeJson(salesResponse);
@@ -533,7 +618,7 @@ export default function Sales(props?: { historyOnly?: boolean }) {
       setPurchasesLoading(false);
     }
   }, [
-    historyOnly,
+    effectiveHistoryOnly,
     buildSalesListUrl,
     adjustmentsMonthlyFilter,
     salesByCategoryFilter,
@@ -629,19 +714,24 @@ export default function Sales(props?: { historyOnly?: boolean }) {
     [loadSalesData],
   );
 
-  const hideHistorySaleRow = useCallback((id: number) => {
-    setHiddenSaleIds((prev) => {
-      const next = new Set(prev);
-      next.add(id);
-      persistHiddenSaleIds(next);
-      return next;
-    });
-  }, []);
+  const hideHistorySaleRow = useCallback(
+    (id: number) => {
+      if (!canUseCashierRowHidingUi) return;
+      setHiddenSaleIds((prev) => {
+        const next = new Set(prev);
+        next.add(id);
+        persistHiddenSaleIds(hiddenStoragePrimaryKey, next);
+        return next;
+      });
+    },
+    [canUseCashierRowHidingUi, hiddenStoragePrimaryKey],
+  );
 
   const restoreAllHiddenHistorySales = useCallback(() => {
-    persistHiddenSaleIds(new Set());
+    if (!canUseCashierRowHidingUi) return;
+    persistHiddenSaleIds(hiddenStoragePrimaryKey, new Set());
     setHiddenSaleIds(new Set());
-  }, []);
+  }, [canUseCashierRowHidingUi, hiddenStoragePrimaryKey]);
 
   const totalSalesValue = useMemo(
     () => sales.reduce((acc, sale) => acc + safeNumber(sale.total), 0),
@@ -682,10 +772,10 @@ export default function Sales(props?: { historyOnly?: boolean }) {
     () => sumPurchaseTotalCost(purchasesInSalesPeriod),
     [purchasesInSalesPeriod],
   );
-  const salesVisibleInHistory = useMemo(
-    () => sales.filter((s) => !hiddenSaleIds.has(s.id)),
-    [sales, hiddenSaleIds],
-  );
+  const salesVisibleInHistory = useMemo(() => {
+    if (!canUseCashierRowHidingUi) return sales;
+    return sales.filter((s) => !hiddenSaleIds.has(s.id));
+  }, [sales, hiddenSaleIds, canUseCashierRowHidingUi]);
   const salesHistoryTotalPages = Math.max(
     1,
     Math.ceil(salesVisibleInHistory.length / SALES_HISTORY_PAGE_SIZE),
@@ -795,7 +885,7 @@ export default function Sales(props?: { historyOnly?: boolean }) {
 
   return (
     <div className="space-y-6">
-      {!historyOnly ? (
+      {!effectiveHistoryOnly ? (
         <>
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
         <Link
@@ -851,19 +941,8 @@ export default function Sales(props?: { historyOnly?: boolean }) {
         </>
       ) : null}
 
-      <div className="relative rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
-        {hiddenSaleIds.size > 0 ? (
-          <button
-            type="button"
-            onClick={restoreAllHiddenHistorySales}
-            className="absolute right-4 top-4 z-10 flex h-9 w-9 items-center justify-center rounded-lg border border-stroke bg-white text-dark shadow-sm hover:bg-gray-2 dark:border-dark-3 dark:bg-gray-dark dark:text-white dark:hover:bg-dark-2"
-            title={`Mostrar ${hiddenSaleIds.size} venta(s) oculta(s) en esta lista`}
-            aria-label="Mostrar ventas ocultas"
-          >
-            <HiOutlineEyeOff className="size-5" aria-hidden />
-          </button>
-        ) : null}
-        <div className="mb-4 flex flex-col gap-3 pr-12 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+      <div className="rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="min-w-0">
             <h3 className="text-xl font-semibold text-black dark:text-white">Historial de ventas</h3>
             <p className="text-sm text-body">
@@ -897,6 +976,16 @@ export default function Sales(props?: { historyOnly?: boolean }) {
               >
                 Actualizar
               </button>
+              {canUseCashierRowHidingUi && hiddenSaleIds.size > 0 ? (
+                <button
+                  type="button"
+                  onClick={restoreAllHiddenHistorySales}
+                  className="inline-flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-lg border border-stroke bg-white text-black transition hover:bg-gray-2 dark:border-dark-3 dark:bg-gray-dark dark:text-white dark:hover:bg-dark-2"
+                >
+                  <span className="sr-only">Restaurar filas ocultas en tu vista</span>
+                  <HiArrowUp className="size-6" aria-hidden />
+                </button>
+              ) : null}
             </div>
             {exportExcelError ? (
               <p className="text-sm text-danger">{exportExcelError}</p>
@@ -933,26 +1022,21 @@ export default function Sales(props?: { historyOnly?: boolean }) {
         ) : sales.length === 0 ? (
           <p className="text-sm text-body">No hay ventas registradas.</p>
         ) : salesVisibleInHistory.length === 0 ? (
-          <div className="space-y-2">
-            <p className="text-sm text-body">
-              QUITAR
-            </p>
-            <button
-              type="button"
-              onClick={restoreAllHiddenHistorySales}
-              className="rounded-lg border border-stroke px-3 py-1.5 text-sm font-medium text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
-            >
-              QUITAR
-            </button>
-          </div>
+          canUseCashierRowHidingUi && hiddenSaleIds.size > 0 && sales.length > 0 ? (
+            <div className="flex min-h-[12rem] items-center justify-center py-10" aria-hidden />
+          ) : (
+            <p className="text-sm text-body">No hay ventas registradas.</p>
+          )
         ) : (
           <TableScroll className="-mx-2 sm:mx-0">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-12 whitespace-nowrap pr-0">
-                  <span className="sr-only">Ocultar fila</span>
-                </TableHead>
+                {canUseCashierRowHidingUi ? (
+                  <TableHead className="w-12 whitespace-nowrap pr-0">
+                    <span className="sr-only">Ocultar venta solo en esta sesión</span>
+                  </TableHead>
+                ) : null}
                 <TableHead>Fecha</TableHead>
                 <TableHead>Medio de pago</TableHead>
                 <TableHead>Factura electronica</TableHead>
@@ -974,17 +1058,18 @@ export default function Sales(props?: { historyOnly?: boolean }) {
                 );
                 return (
                   <TableRow key={sale.id}>
-                    <TableCell className="pr-0">
-                      <button
-                        type="button"
-                        onClick={() => hideHistorySaleRow(sale.id)}
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-stroke text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
-                        title=""
-                        aria-label=""
-                      >
-                        <HiChevronUp className="size-5" aria-hidden />
-                      </button>
-                    </TableCell>
+                    {canUseCashierRowHidingUi ? (
+                      <TableCell className="pr-0">
+                        <button
+                          type="button"
+                          onClick={() => hideHistorySaleRow(sale.id)}
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-stroke text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
+                        >
+                          <span className="sr-only">Ocultar venta solo en esta sesión</span>
+                          <HiOutlineEyeOff className="size-5" aria-hidden />
+                        </button>
+                      </TableCell>
+                    ) : null}
                     <TableCell>{formatSaleDate(sale.created_at)}</TableCell>
                     <TableCell className="whitespace-nowrap text-xs text-black dark:text-white">
                       {salePaymentMethodLabel(sale.payment_method ?? undefined)}
@@ -1138,7 +1223,7 @@ export default function Sales(props?: { historyOnly?: boolean }) {
         ) : null}
       </div>
 
-      {!historyOnly ? (
+      {!effectiveHistoryOnly ? (
         <>
       <div className="rounded-sm border border-stroke bg-white p-6 shadow-default dark:border-dark-3 dark:bg-gray-dark">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
