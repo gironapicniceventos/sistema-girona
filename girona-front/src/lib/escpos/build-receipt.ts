@@ -1,8 +1,8 @@
 import {
   formatPlainCop,
-  lineItemCartGross,
-  lineItemCartUnit,
   orderCartTotals,
+  prefacturaDisplayLineGross,
+  prefacturaDisplayUnit,
   type PosPrefacturaOrder,
 } from "@/lib/pos/prefactura";
 
@@ -72,11 +72,17 @@ export type EscPosReceiptMeta = {
   /** Caracteres por línea (48 ≈ 80 mm con fuente normal). */
   lineWidth?: number;
   tipAmount?: number | null;
+  /** Precio unitario carta en prefactura (por ítem POS), si diffiere del calculado desde el pedido. */
+  lineUnitCartOverrides?: Record<number, number>;
 };
 
 export function buildEscPosReceiptBytes(order: PosPrefacturaOrder, meta: EscPosReceiptMeta): Uint8Array {
   const w = meta.lineWidth ?? 48;
-  const ct = orderCartTotals(order, { tipAmount: meta.tipAmount });
+  const ct = orderCartTotals(order, {
+    tipAmount: meta.tipAmount,
+    lineUnitCartOverrides: meta.lineUnitCartOverrides,
+  });
+  const ovs = meta.lineUnitCartOverrides;
   const chunks: Uint8Array[] = [];
 
   chunks.push(new Uint8Array([ESC, 0x40]));
@@ -97,8 +103,8 @@ export function buildEscPosReceiptBytes(order: PosPrefacturaOrder, meta: EscPosR
 
   order.items.forEach((item, index) => {
     const qty = Math.max(1, Number(item.quantity) || 1);
-    const grossLine = lineItemCartGross(item);
-    const grossUnit = lineItemCartUnit(item);
+    const grossLine = prefacturaDisplayLineGross(item, ovs);
+    const grossUnit = prefacturaDisplayUnit(item, ovs);
 
     const head = `${index + 1}. [${item.menu_item_id}]`;
     chunks.push(line(encodeEscPosText(head)));
@@ -147,7 +153,7 @@ export function buildEscPosReceiptBytes(order: PosPrefacturaOrder, meta: EscPosR
 
   chunks.push(line(new Uint8Array(0)));
   for (const wl of wrapToWidth(
-    "Precios de carta. La discriminacion de IVA solo aplica al emitir factura electronica.",
+    "Prefactura informativa. Propina opcional; IVA discriminado solo en factura electronica.",
     w,
   )) {
     chunks.push(line(encodeEscPosText(wl)));

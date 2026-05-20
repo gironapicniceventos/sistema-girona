@@ -13,6 +13,36 @@ type CreditNoteBody = {
   send_email?: boolean;
 };
 
+function formatBackendDetail(detail: unknown): string | undefined {
+  if (typeof detail === "string") {
+    const t = detail.trim();
+    return t.length > 0 ? t : undefined;
+  }
+  if (Array.isArray(detail)) {
+    const parts = detail.map((entry) => {
+      if (typeof entry === "string") return entry;
+      if (entry && typeof entry === "object" && "msg" in entry && typeof (entry as { msg: unknown }).msg === "string") {
+        return (entry as { msg: string }).msg;
+      }
+      try {
+        return JSON.stringify(entry);
+      } catch {
+        return "";
+      }
+    });
+    const joined = parts.filter((s) => s.length > 0).join("; ");
+    return joined.length > 0 ? joined : undefined;
+  }
+  if (detail && typeof detail === "object") {
+    try {
+      return JSON.stringify(detail);
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ saleId?: string }> },
@@ -58,10 +88,11 @@ export async function POST(
 
   const out = await safeJson(response);
   if (!response.ok) {
-    const message =
-      (typeof (out as any)?.detail === "string" && (out as any).detail) ||
-      (typeof (out as any)?.message === "string" && (out as any).message) ||
-      "No se pudo emitir la nota crédito";
+    const detailText = formatBackendDetail((out as Record<string, unknown>)?.detail);
+    const rawMsg = (out as Record<string, unknown>)?.message;
+    const fallbackMsg =
+      typeof rawMsg === "string" && rawMsg.trim().length > 0 ? rawMsg.trim() : undefined;
+    const message = detailText || fallbackMsg || "No se pudo emitir la nota crédito";
     return NextResponse.json(
       { message, error: out, backendUrl: backendBaseUrl, triedUrl: url },
       { status: response.status || 400 },

@@ -447,6 +447,12 @@ class PosOrderDeliver(BaseModel):
     waiter_id: int | None = None
 
 
+class PosOrderAssignWaiter(BaseModel):
+    """Asigna o cambia mesero sin marcar la orden como entregada (p. ej. tras añadir ítems a la comanda)."""
+
+    waiter_id: int = Field(gt=0)
+
+
 class PosOrderClose(BaseModel):
     customer_id: int | None = None
     customer_name: str | None = Field(default=None, min_length=1, max_length=200)

@@ -18,14 +18,16 @@ export default function AuthLayout({ children }: PropsWithChildren) {
       <div className="relative z-10 w-full max-w-xl overflow-hidden rounded-2xl border border-white/15 bg-white/10 shadow-2xl backdrop-blur-xl dark:bg-black/20">
         <div className="px-6 py-8 sm:px-10 sm:py-10">
           <div className="mb-8 flex items-center justify-center">
-            <Image
-              src="/images/logo/LogoGP.png"
-              alt="Logo"
-              width={1000}
-              height={1000}
-              priority
-              className="h-24 w-auto object-contain sm:h-28"
-            />
+            <div className="relative mx-auto h-28 w-28 shrink-0 sm:h-32 sm:w-32">
+              <Image
+                src="/images/logo/LogoGP.png"
+                alt="Girona Picnic"
+                fill
+                sizes="(max-width: 640px) 7rem, 8rem"
+                priority
+                className="object-contain drop-shadow-md"
+              />
+            </div>
           </div>
 
           <AuthTabs />

@@ -755,6 +755,38 @@ def delete_order_item(
     return order
 
 
+@router.post("/orders/{order_id}/waiter", response_model=schemas.PosOrderOut)
+def assign_waiter_to_order(
+    order_id: int,
+    payload: schemas.PosOrderAssignWaiter,
+    db_session: Session = Depends(db.get_db),
+):
+    """Asigna mesero sin cambiar estado de entrega ni abrir cobro."""
+    order = db_session.query(models.PosOrder).filter(models.PosOrder.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Orden no encontrada")
+    if order.status in {"closed", "void"}:
+        raise HTTPException(status_code=400, detail="La orden ya está finalizada")
+
+    waiter = (
+        db_session.query(models.Waiter)
+        .filter(models.Waiter.id == payload.waiter_id, models.Waiter.is_active == True)  # noqa: E712
+        .first()
+    )
+    if not waiter:
+        raise HTTPException(status_code=404, detail="Mesero no encontrado")
+
+    order.waiter_id = waiter.id
+    if order.sale:
+        order.sale.waiter_id = waiter.id
+        db_session.add(order.sale)
+
+    db_session.add(order)
+    db_session.commit()
+    db_session.refresh(order)
+    return order
+
+
 @router.post("/orders/{order_id}/deliver", response_model=schemas.PosOrderOut)
 def mark_order_delivered(
     order_id: int, payload: schemas.PosOrderDeliver, db_session: Session = Depends(db.get_db)

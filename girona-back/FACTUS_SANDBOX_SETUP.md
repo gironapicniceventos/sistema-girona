@@ -31,6 +31,9 @@ Variables recomendadas para iniciar rapido:
 - `FACTUS_NUMBERING_RANGE_ID` (si lo conoces)
 - `FACTUS_DEFAULT_CUSTOMER_EMAIL`
 - `FACTUS_DEFAULT_MUNICIPALITY_ID`
+- **`FACTUS_ITEM_TRIBUTE_ID`** (tributo por linea enviado a Factus como `items[].tribute_id`). No es el codigo DIAN de la tabla (p. ej. INC = **04** en norma); es el **ID del catalogo Factus** de «tributos de productos» / lookups. En el proyecto, el valor por defecto **2** corresponde a INC (codigo DIAN **04**); **1** suele ser IVA (codigo **01**). Si tu cuenta Factus usa otros IDs, consulta la API/tablas del panel y sobrescribe la variable.
+
+El porcentaje de impuesto va en `items[].tax_rate` (cadena tipo `8.00`); el POS ya envia INC al **8%** cuando corresponde.
 
 ### Prueba en localhost
 

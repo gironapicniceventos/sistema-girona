@@ -9,7 +9,7 @@ import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
 import jsPDF from "jspdf";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   HiLightningBolt,
   HiOutlineBell,
@@ -21,13 +21,13 @@ import { buildEscPosReceiptBytes } from "@/lib/escpos/build-receipt";
 import { PrefacturaClientePanel } from "@/lib/pos/prefactura-client-panel";
 import {
   buildPrefacturaPdf,
-  buildThermalReceiptPdf,
 } from "@/lib/pos/prefactura-pdf";
 import {
   lineItemCartGross,
   lineItemCartUnit,
   orderCartTotals,
   orderDisplayCartTotal,
+  prefacturaDisplayLineGross,
   type PosPrefacturaItem,
   type PosPrefacturaOrder,
 } from "@/lib/pos/prefactura";
@@ -757,8 +757,12 @@ function ViewOrderModal({
   canAddToOrder: boolean;
   onAddToOrder: (order: PosOrderOut) => void;
   canPayOrder: boolean;
-  onPayOrder: (order: PosOrderOut) => void;
-  onEscPosPrint?: (order: PosOrderOut, tipAmount?: number) => void;
+  onPayOrder: (order: PosOrderOut, prefacturaServiceTip?: number | null) => void;
+  onEscPosPrint?: (
+    order: PosOrderOut,
+    tipAmount?: number,
+    lineUnitCartOverrides?: Record<number, number>,
+  ) => void;
   deletingItemId: number | null;
   onDeleteItem: (order: PosOrderOut, itemId: number) => void;
   deleteSuccessMessage: string | null;
@@ -767,7 +771,7 @@ function ViewOrderModal({
 
   useEffect(() => {
     if (!order) return;
-    setTipInput(String(orderCartTotals(order).suggestedTip));
+    setTipInput(String(orderCartTotals(order as PosPrefacturaOrder).suggestedTip));
   }, [order?.id]);
 
   if (!order) return null;
@@ -780,15 +784,21 @@ function ViewOrderModal({
   const tipForCalc = Number.isFinite(tipParsed) ? Math.max(0, tipParsed) : undefined;
 
   function downloadPrefactura() {
-    buildPrefacturaPdf(activeOrder, resolvedTable, status.label, tipForCalc).save(
-      `prefactura-pedido-${activeOrder.id}.pdf`,
-    );
+    buildPrefacturaPdf(
+      activeOrder as PosPrefacturaOrder,
+      resolvedTable,
+      status.label,
+      tipForCalc,
+    ).save(`prefactura-pedido-${activeOrder.id}.pdf`);
   }
 
   function printPrefactura() {
-    buildPrefacturaPdf(activeOrder, resolvedTable, status.label, tipForCalc).output(
-      "dataurlnewwindow",
-    );
+    buildPrefacturaPdf(
+      activeOrder as PosPrefacturaOrder,
+      resolvedTable,
+      status.label,
+      tipForCalc,
+    ).output("dataurlnewwindow");
   }
   return (
     <div
@@ -836,7 +846,7 @@ function ViewOrderModal({
             {onEscPosPrint ? (
               <button
                 type="button"
-                onClick={() => onEscPosPrint(activeOrder, tipForCalc)}
+                onClick={() => onEscPosPrint(activeOrder, tipForCalc, undefined)}
                 className="inline-flex items-center gap-1 rounded-lg border border-stroke px-2.5 py-1.5 text-xs font-semibold text-dark hover:bg-gray-2 dark:border-dark-3 dark:text-white dark:hover:bg-dark-2"
               >
                 <HiLightningBolt className="h-4 w-4" />
@@ -880,15 +890,22 @@ function ViewOrderModal({
                 className="rounded-xl border border-stroke bg-white p-3 text-sm text-dark shadow-sm dark:border-dark-3 dark:bg-dark-2 dark:text-white"
               >
                 <div className="flex items-start justify-between gap-2">
-                  <div>
+                  <div className="min-w-0 flex-1">
                     <div className="font-semibold">{item.name}</div>
                     <div className="text-xs text-dark-6 dark:text-dark-6">
                       {item.category} · {zoneLabel(item.zone)}
                     </div>
                   </div>
-                  <div className="text-sm font-semibold text-primary">
-                    {formatMoney(lineItemCartUnit(item))}
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onDeleteItem(activeOrder, item.id)}
+                    disabled={deletingItemId === item.id}
+                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-red/70 text-red hover:bg-red/10 disabled:cursor-not-allowed disabled:opacity-50"
+                    title="Eliminar producto"
+                  >
+                    <span className="sr-only">Eliminar producto</span>
+                    <TrashIcon />
+                  </button>
                 </div>
                 <div className="mt-1 text-xs text-dark-6 dark:text-dark-6">
                   Cant: {item.quantity}
@@ -897,18 +914,21 @@ function ViewOrderModal({
                     : ""}
                   {item.courtesy ? " · Cortesía" : ""}
                 </div>
-                <div className="mt-1 flex items-center justify-between gap-2 text-xs font-semibold text-dark dark:text-white">
-                  <span>Total línea (carta): {formatMoney(lineItemCartGross(item))}</span>
-                  <button
-                    type="button"
-                    onClick={() => onDeleteItem(activeOrder, item.id)}
-                    disabled={deletingItemId === item.id}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-red/70 text-red hover:bg-red/10 disabled:cursor-not-allowed disabled:opacity-50"
-                    title="Eliminar producto"
-                  >
-                    <span className="sr-only">Eliminar producto</span>
-                    <TrashIcon />
-                  </button>
+                <div className="mt-2 space-y-1">
+                  {item.courtesy ? (
+                    <p className="text-xs font-medium text-dark-6 dark:text-dark-6">Cortesía — sin cargo</p>
+                  ) : (
+                    <p className="text-xs font-medium text-body-color dark:text-dark-6">
+                      Precio carta / unidad:{" "}
+                      <span className="tabular-nums text-dark dark:text-white">
+                        {formatMoney(lineItemCartUnit(item as PosPrefacturaItem))}
+                      </span>
+                    </p>
+                  )}
+                  <div className="text-xs font-semibold text-dark dark:text-white">
+                    Total línea:{" "}
+                    {formatMoney(prefacturaDisplayLineGross(item as PosPrefacturaItem))}
+                  </div>
                 </div>
               </div>
             ))
@@ -922,7 +942,14 @@ function ViewOrderModal({
           {canPayOrder ? (
             <button
               type="button"
-              onClick={() => onPayOrder(activeOrder)}
+              onClick={() => {
+                const fromInput = Number(tipInput);
+                const tipToCharge =
+                  Number.isFinite(fromInput) && fromInput >= 0
+                    ? Math.round(fromInput)
+                    : Math.round(orderCartTotals(activeOrder as PosPrefacturaOrder).tipAmount);
+                onPayOrder(activeOrder, tipToCharge);
+              }}
               className="mt-2 w-full rounded-lg bg-red px-4 py-2 text-sm font-semibold text-white hover:bg-red/90"
             >
               Pagar
@@ -1001,6 +1028,7 @@ export default function PosScreen() {
     | { kind: "success"; message: string }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
+  const pendingPrefacturaServiceTipRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (issueElectronicInvoice) setApplyConsumptionTax(true);
@@ -1017,6 +1045,7 @@ export default function PosScreen() {
     | { kind: "success"; message: string }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
+  const [waiterModalAssignOnly, setWaiterModalAssignOnly] = useState(false);
   const cartItems = useMemo(() => Object.values(cart), [cart]);
   const resolveWaiterName = useCallback(
     (order: PosOrderOut | null | undefined) => {
@@ -1268,7 +1297,11 @@ export default function PosScreen() {
     setSubmitStatus({ kind: "idle" });
   }
 
-  function openPayOrderFlow(order: PosOrderOut) {
+  function openPayOrderFlow(order: PosOrderOut, prefacturaServiceTip?: number | null) {
+    pendingPrefacturaServiceTipRef.current =
+      prefacturaServiceTip != null && Number.isFinite(prefacturaServiceTip)
+        ? Math.max(0, Math.round(prefacturaServiceTip))
+        : null;
     setViewOrder(null);
     if (order.status === "delivered") {
       openPaymentModal(order);
@@ -1277,11 +1310,17 @@ export default function PosScreen() {
     if (useAutoWaiter && sessionWaiterId != null) {
       const waiterIdForDeliver = order.waiter_id == null ? sessionWaiterId : null;
       void (async () => {
-        await handleMarkOrderDelivered(order.id, waiterIdForDeliver, true);
+        const updated = await handleMarkOrderDelivered(order.id, waiterIdForDeliver, true);
+        if (updated) {
+          openPaymentModal(updated);
+        } else {
+          pendingPrefacturaServiceTipRef.current = null;
+        }
       })();
       return;
     }
     if (autoWaiterRole && sessionWaiterId == null) {
+      pendingPrefacturaServiceTipRef.current = null;
       window.alert(
         "Tu cuenta de mesero no está vinculada a una ficha. Un administrador debe vincular tu usuario en Personal → Meseros, o reiniciar el backend con SEED_STAFF_USERS=1 para sincronizar fichas automáticamente. Luego cierra sesión y vuelve a entrar.",
       );
@@ -1589,9 +1628,10 @@ export default function PosScreen() {
     setWaiterStatus({ kind: "idle" });
   }
 
-  function openWaiterModal(order: PosOrderOut) {
+  function openWaiterModal(order: PosOrderOut, opts?: { assignOnly?: boolean }) {
     setWaiterOrder(order);
     setWaiterModalOpen(true);
+    setWaiterModalAssignOnly(Boolean(opts?.assignOnly));
     resetWaiterForm();
     void loadWaiters();
   }
@@ -1599,7 +1639,9 @@ export default function PosScreen() {
   function closeWaiterModal() {
     setWaiterModalOpen(false);
     setWaiterOrder(null);
+    setWaiterModalAssignOnly(false);
     resetWaiterForm();
+    pendingPrefacturaServiceTipRef.current = null;
   }
 
   async function loadWaiters() {
@@ -1659,6 +1701,59 @@ export default function PosScreen() {
 
   async function handleWaiterDelivery() {
     if (!waiterOrder) return;
+
+    if (waiterModalAssignOnly) {
+      let waiterIdAssign: number | null = null;
+      if (useAutoWaiter && sessionWaiterId != null) {
+        waiterIdAssign = sessionWaiterId;
+      } else {
+        if (waiterList.length === 0) {
+          setWaiterStatus({
+            kind: "error",
+            message:
+              "No hay meseros activos en el sistema. Crea fichas en Personal → Meseros (y reactívalas) o reinicia el backend con SEED_STAFF_USERS=1.",
+          });
+          return;
+        }
+        const parsedAssign = Number(selectedWaiterId);
+        if (!Number.isFinite(parsedAssign) || parsedAssign <= 0) {
+          setWaiterStatus({ kind: "error", message: "Selecciona un mesero." });
+          return;
+        }
+        waiterIdAssign = parsedAssign;
+      }
+
+      setWaiterStatus({ kind: "loading" });
+      try {
+        const res = await fetch(`/api/pos/orders/${waiterOrder.id}/waiter`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ waiter_id: waiterIdAssign }),
+        });
+        const responsePayload = (await res.json().catch(() => null)) as Record<
+          string,
+          unknown
+        > | null;
+        if (!res.ok) {
+          setWaiterStatus({
+            kind: "error",
+            message:
+              (typeof responsePayload?.message === "string" && responsePayload.message) ||
+              (typeof responsePayload?.detail === "string" && responsePayload.detail) ||
+              "No se pudo asignar el mesero.",
+          });
+          return;
+        }
+        const updatedAssign = responsePayload as PosOrderOut;
+        setOrders((prev) => prev.map((o) => (o.id === updatedAssign.id ? updatedAssign : o)));
+        setWaiterStatus({ kind: "success", message: "Mesero asignado." });
+        closeWaiterModal();
+      } catch {
+        setWaiterStatus({ kind: "error", message: "Error asignando mesero." });
+      }
+      return;
+    }
+
     const hasWaiterOnOrder = waiterOrder.waiter_id != null;
     let waiterId: number | null = null;
     if (!hasWaiterOnOrder) {
@@ -1683,6 +1778,7 @@ export default function PosScreen() {
     }
     const updated = await handleMarkOrderDelivered(waiterOrder.id, waiterId);
     if (!updated) return;
+    openPaymentModal(updated);
     closeWaiterModal();
   }
 
@@ -1705,7 +1801,11 @@ export default function PosScreen() {
     setPaymentOrder(order);
     setPaymentModalOpen(true);
     resetPaymentForm();
-    setServiceTipInput(String(Math.max(0, Number(order.service_total) || 0)));
+    const pendingTip = pendingPrefacturaServiceTipRef.current;
+    pendingPrefacturaServiceTipRef.current = null;
+    const tipFromDb = Math.max(0, Number(order.service_total) || 0);
+    const tipAmount = pendingTip != null ? pendingTip : tipFromDb;
+    setServiceTipInput(String(tipAmount));
   }
 
   function closePaymentModal() {
@@ -1960,21 +2060,68 @@ export default function PosScreen() {
     [groupedBar],
   );
 
-  useEffect(() => {
-    if (!activeRestCategory && groupedRest.length > 0) {
-      setActiveRestCategory(groupedRest[0][0]);
-    }
-    // Reset búsqueda al cambiar de categoría activa
-    setRestSearch("");
-  }, [groupedRest, activeRestCategory]);
+  const restSearchNormalized = useMemo(() => normalizeSearchText(restSearch), [restSearch]);
+  const barSearchNormalized = useMemo(() => normalizeSearchText(barSearch), [barSearch]);
 
   useEffect(() => {
-    if (!activeBarCategory && groupedBar.length > 0) {
+    if (restSearchNormalized) {
+      setActiveRestCategory(null);
+      return;
+    }
+    if (groupedRest.length === 0) return;
+    if (!activeRestCategory || !groupedRest.some(([c]) => c === activeRestCategory)) {
+      setActiveRestCategory(groupedRest[0][0]);
+    }
+  }, [groupedRest, activeRestCategory, restSearchNormalized]);
+
+  useEffect(() => {
+    if (barSearchNormalized) {
+      setActiveBarCategory(null);
+      return;
+    }
+    if (groupedBar.length === 0) return;
+    if (!activeBarCategory || !groupedBar.some(([c]) => c === activeBarCategory)) {
       setActiveBarCategory(groupedBar[0][0]);
     }
-    // Reset búsqueda al cambiar de categoría activa
-    setBarSearch("");
-  }, [groupedBar, activeBarCategory]);
+  }, [groupedBar, activeBarCategory, barSearchNormalized]);
+
+  const visibleRestaurantMenu = useMemo(() => {
+    return groupedRest
+      .map(([cat, items]) => {
+        const filtered = items.filter((item) => {
+          if (!restSearchNormalized) return true;
+          return (
+            normalizeSearchText(item.name).includes(restSearchNormalized) ||
+            normalizeSearchText(item.description ?? "").includes(restSearchNormalized)
+          );
+        });
+        return [cat, filtered] as const;
+      })
+      .filter(([cat, filtered]) => {
+        if (filtered.length === 0) return false;
+        if (!restSearchNormalized && activeRestCategory && cat !== activeRestCategory) return false;
+        return true;
+      });
+  }, [groupedRest, restSearchNormalized, activeRestCategory]);
+
+  const visibleBarMenu = useMemo(() => {
+    return groupedBar
+      .map(([cat, items]) => {
+        const filtered = items.filter((item) => {
+          if (!barSearchNormalized) return true;
+          return (
+            normalizeSearchText(item.name).includes(barSearchNormalized) ||
+            normalizeSearchText(item.description ?? "").includes(barSearchNormalized)
+          );
+        });
+        return [cat, filtered] as const;
+      })
+      .filter(([cat, filtered]) => {
+        if (filtered.length === 0) return false;
+        if (!barSearchNormalized && activeBarCategory && cat !== activeBarCategory) return false;
+        return true;
+      });
+  }, [groupedBar, barSearchNormalized, activeBarCategory]);
 
   useEffect(() => {
     fetch("/api/menu/items")
@@ -2134,14 +2281,35 @@ export default function PosScreen() {
         setAppendingOrderId(null);
         setMode("idle");
         setSelectedTableId(null);
+        setViewOrder(null);
         setSubmitStatus({ kind: "idle" });
-        setViewOrder(updatedOrder);
+        if (updatedOrder.waiter_id == null) {
+          if (autoWaiterRole && sessionWaiterId == null) {
+            window.alert(
+              "Los items se añadieron, pero la comanda sigue sin mesero. Vincula tu usuario a una ficha en Personal → Meseros (o reinicia el backend con SEED_STAFF_USERS=1) y vuelve a iniciar sesión para poder asignarlo.",
+            );
+          } else {
+            openWaiterModal(updatedOrder, { assignOnly: true });
+          }
+        } else {
+          setViewOrder(updatedOrder);
+        }
       } else {
         setAppendingOrderId(null);
         setMode("idle");
         setSelectedTableId(null);
         setSubmitStatus({ kind: "idle" });
-        openPayOrderFlow(updatedOrder);
+        if (updatedOrder.waiter_id == null) {
+          if (autoWaiterRole && sessionWaiterId == null) {
+            window.alert(
+              "El pedido quedó creado pero sin mesero asignado. Vincula tu usuario a una ficha en Personal → Meseros (o reinicia el backend con SEED_STAFF_USERS=1) y vuelve a iniciar sesión para poder asignarlo desde la mesa.",
+            );
+          } else {
+            openWaiterModal(updatedOrder, { assignOnly: true });
+          }
+        } else {
+          openPayOrderFlow(updatedOrder);
+        }
       }
     } catch {
       const message = appendingOrderId
@@ -2519,18 +2687,22 @@ export default function PosScreen() {
             <div className="flex items-start justify-between gap-2">
               <div>
                 <h3 className="text-lg font-semibold text-dark dark:text-white">
-                  {waiterOrder.waiter_id != null
-                    ? "Marcar entrega"
-                    : useAutoWaiter
-                      ? "Confirmar entrega"
-                      : "Asignar mesero"}
+                  {waiterModalAssignOnly
+                    ? "Seleccionar mesero"
+                    : waiterOrder.waiter_id != null
+                      ? "Marcar entrega"
+                      : useAutoWaiter
+                        ? "Confirmar entrega"
+                        : "Asignar mesero"}
                 </h3>
                 <p className="text-sm text-body-color dark:text-dark-6">
                   Pedido #{waiterOrder.id} · Mesa {getTableName(waiterOrder.table_id)}
                   {resolveWaiterName(waiterOrder) ? ` · ${resolveWaiterName(waiterOrder)}` : ""}
                 </p>
                 <p className="mt-2 text-xs text-body-color dark:text-dark-6">
-                  Al continuar se marca la entrega y se abre el cobro y facturación.
+                  {waiterModalAssignOnly
+                    ? "Elige quién atiende esta comanda. Después volverás a la vista general de mesas."
+                    : "Al continuar se marca la entrega y se abre el cobro y facturación."}
                 </p>
               </div>
               <button
@@ -2597,7 +2769,11 @@ export default function PosScreen() {
                   disabled={waiterStatus.kind === "loading"}
                   className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-60"
                 >
-                  {waiterStatus.kind === "loading" ? "Guardando..." : "Continuar al pago"}
+                  {waiterStatus.kind === "loading"
+                    ? "Guardando..."
+                    : waiterModalAssignOnly
+                      ? "Guardar mesero"
+                      : "Continuar al pago"}
                 </button>
               </div>
             </div>
@@ -3113,10 +3289,13 @@ export default function PosScreen() {
                             <button
                               key={cat}
                               type="button"
-                              onClick={() => setActiveRestCategory(cat)}
+                              onClick={() => {
+                                setActiveRestCategory(cat);
+                                setRestSearch("");
+                              }}
                               className={
                                 "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold " +
-                                (activeRestCategory === cat
+                                (!restSearchNormalized && activeRestCategory === cat
                                   ? "bg-primary text-white"
                                   : "bg-primary/10 text-primary hover:bg-primary/20")
                               }
@@ -3131,31 +3310,20 @@ export default function PosScreen() {
                         <input
                           value={restSearch}
                           onChange={(e) => setRestSearch(e.target.value)}
-                          placeholder="Buscar en restaurante..."
+                          placeholder="Buscar en todas las categorías..."
                           className="w-full rounded-lg border-2 border-primary/40 bg-white py-2 pl-11 pr-3 text-sm text-dark shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-dark-3 dark:bg-dark-2 dark:text-white"
                         />
                         <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-primary" />
                       </div>
                     </div>
                     <div className="space-y-3">
-                      {groupedRest
-                        .filter(([cat]) => !activeRestCategory || cat === activeRestCategory)
-                        .map(([cat, items]) => (
+                      {visibleRestaurantMenu.map(([cat, items]) => (
                           <div key={cat} className="space-y-2">
                             <div className="text-xs font-semibold uppercase text-dark-6 dark:text-dark-6">
                               {cat}
                             </div>
                             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                              {items
-                                .filter((item) => {
-                                  const term = normalizeSearchText(restSearch);
-                                  if (!term) return true;
-                                  return (
-                                    normalizeSearchText(item.name).includes(term) ||
-                                    normalizeSearchText(item.description ?? "").includes(term)
-                                  );
-                                })
-                                .map((item) => (
+                              {items.map((item) => (
                                   <div
                                     key={item.id}
                                     className="flex h-full flex-col rounded-xl border border-stroke bg-white p-3 shadow-sm dark:border-dark-3 dark:bg-dark-2"
@@ -3204,10 +3372,13 @@ export default function PosScreen() {
                             <button
                               key={cat}
                               type="button"
-                              onClick={() => setActiveBarCategory(cat)}
+                              onClick={() => {
+                                setActiveBarCategory(cat);
+                                setBarSearch("");
+                              }}
                               className={
                                 "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold " +
-                                (activeBarCategory === cat
+                                (!barSearchNormalized && activeBarCategory === cat
                                   ? "bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500"
                                   : "bg-emerald-100 text-emerald-900 hover:bg-emerald-200/90 dark:bg-emerald-950/40 dark:text-emerald-100 dark:hover:bg-emerald-900/35")
                               }
@@ -3222,31 +3393,20 @@ export default function PosScreen() {
                         <input
                           value={barSearch}
                           onChange={(e) => setBarSearch(e.target.value)}
-                          placeholder="Buscar en bar..."
+                          placeholder="Buscar en todas las categorías (bar)..."
                           className="w-full rounded-lg border-2 border-emerald-500/35 bg-white py-2 pl-11 pr-3 text-sm text-dark shadow-sm outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/25 dark:border-dark-3 dark:bg-dark-2 dark:text-white"
                         />
                         <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-emerald-600 dark:text-emerald-400" />
                       </div>
                     </div>
                     <div className="space-y-3">
-                      {groupedBar
-                        .filter(([cat]) => !activeBarCategory || cat === activeBarCategory)
-                        .map(([cat, items]) => (
+                      {visibleBarMenu.map(([cat, items]) => (
                           <div key={cat} className="space-y-2">
                             <div className="text-xs font-semibold uppercase text-dark-6 dark:text-dark-6">
                               {cat}
                             </div>
                             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                              {items
-                                .filter((item) => {
-                                  const term = normalizeSearchText(barSearch);
-                                  if (!term) return true;
-                                  return (
-                                    normalizeSearchText(item.name).includes(term) ||
-                                    normalizeSearchText(item.description ?? "").includes(term)
-                                  );
-                                })
-                                .map((item) => (
+                              {items.map((item) => (
                                   <div
                                     key={item.id}
                                     className="flex h-full flex-col rounded-xl border border-stroke bg-white p-3 shadow-sm dark:border-dark-3 dark:bg-dark-2"
@@ -3451,9 +3611,6 @@ export default function PosScreen() {
               </div>
 
               <div className="mt-4 space-y-1 text-sm text-dark dark:text-white">
-                <p className="text-[11px] text-body-color dark:text-dark-6">
-                  Importes tal como en el menú del POS. El desglose IMPOCONSUMO 8% y el total final con INC solo se ven al pagar, si marcas &quot;Aplicar impuesto al consumo&quot;.
-                </p>
                 <div className="flex items-center justify-between">
                   <span>Subtotal</span>
                   <span>{formatMoney(cartTotals.subtotal)}</span>
@@ -3466,9 +3623,6 @@ export default function PosScreen() {
                   <span>Cortesías</span>
                   <span>{formatMoney(cartTotals.courtesy)}</span>
                 </div>
-                <p className="text-[11px] text-body-color dark:text-dark-6">
-                  Aún no se discrimina el INC en este total: coincide con la suma de precios de carta (menos descuentos y cortesías).
-                </p>
                 <div className="flex items-center justify-between text-base font-semibold">
                   <span>Total comanda (carta)</span>
                   <span>{formatMoney(cartTotals.total)}</span>

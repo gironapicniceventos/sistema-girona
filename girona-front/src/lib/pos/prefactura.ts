@@ -49,7 +49,11 @@ export function lineItemBase(item: PosPrefacturaItem): number {
   return Math.max(u * q - d, 0);
 }
 
-/** Valor de línea como en la carta (IVA incluido, sin discriminar). */
+/** Valor de línea como precio carta que vio el cliente en toma de pedidos (INC incluido en ese precio).
+ * Con `tax_rate` 0, `unit_price` / `line_subtotal` / `line_total` en API son solo la base antes de aplicar INC
+ * discriminado en cierre — no debe mostrarse ese neto como "carta".
+ * Con `tax_rate` > 0 (cuenta recomputada en cierre con INC), `line_total` ya es base + impuesto línea.
+ */
 export function lineItemCartGross(item: PosPrefacturaItem): number {
   if (item.courtesy) return 0;
   const tr = Number(item.tax_rate);
@@ -58,8 +62,6 @@ export function lineItemCartGross(item: PosPrefacturaItem): number {
     if (Number.isFinite(lt)) return lt;
     return lineItemBase(item) + Math.round(lineItemBase(item) * tr);
   }
-  const lt = Number(item.line_total);
-  if (Number.isFinite(lt) && lt > 0) return lt;
   return Math.round(lineItemBase(item) * (1 + POS_INC_RATE));
 }
 
@@ -74,13 +76,39 @@ export const lineItemGross = lineItemCartGross;
 export type OrderCartTotalsOptions = {
   /** Si se omite, se usa propina sugerida o la registrada en el pedido. */
   tipAmount?: number | null;
+  /** Por `item.id`: precio unitario carta (COP) mostrado al cliente antes de cerrar cuenta. */
+  lineUnitCartOverrides?: Record<number, number>;
 };
+
+/** Precio unitario y total línea en prefactura (respeta sobrescritura por línea si existe). */
+export function prefacturaDisplayUnit(
+  item: PosPrefacturaItem,
+  overrides?: Record<number, number> | null,
+): number {
+  if (item.courtesy) return 0;
+  const o = overrides?.[item.id];
+  if (o != null && Number.isFinite(o) && o >= 0) return Math.round(o);
+  return lineItemCartUnit(item);
+}
+
+export function prefacturaDisplayLineGross(
+  item: PosPrefacturaItem,
+  overrides?: Record<number, number> | null,
+): number {
+  if (item.courtesy) return 0;
+  const u = prefacturaDisplayUnit(item, overrides);
+  const q = Math.max(1, Number(item.quantity) || 1);
+  return Math.round(u * q);
+}
 
 /** Totales de prefactura: solo precios de carta + propina sugerida (sin desglose IVA). */
 export function orderCartTotals(order: PosPrefacturaOrder, options?: OrderCartTotalsOptions) {
+  const ovs = options?.lineUnitCartOverrides ?? null;
+  const hasLineUnitOverrides = !!(ovs && Object.keys(ovs).length > 0);
+
   let subtotalCart = 0;
   for (const it of order.items) {
-    subtotalCart += lineItemCartGross(it);
+    subtotalCart += prefacturaDisplayLineGross(it, ovs ?? undefined);
   }
   const discount = Number(order.discount_total) || 0;
   const courtesy = Number(order.courtesy_total) || 0;
@@ -94,8 +122,8 @@ export function orderCartTotals(order: PosPrefacturaOrder, options?: OrderCartTo
 
   return {
     subtotalCart,
-    discount,
-    courtesy,
+    discount: hasLineUnitOverrides ? 0 : discount,
+    courtesy: hasLineUnitOverrides ? 0 : courtesy,
     suggestedTip,
     tipAmount,
     totalWithTip: subtotalCart + tipAmount,
