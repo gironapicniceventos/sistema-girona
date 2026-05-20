@@ -1269,6 +1269,7 @@ export default function PosScreen() {
           dateText,
           host: host.trim(),
           port,
+          tipAmount,
         }),
       });
       const payload = (await res.json().catch(() => null)) as {

@@ -8,6 +8,7 @@
  * Front: NEXT_PUBLIC_THERMAL_BRIDGE_URL=http://127.0.0.1:3040
  *
  * POST /print  JSON: { "host": "192.168.1.50", "port": 9100, "dataBase64": "..." }
+ * El buffer puede incluir QR ESC/POS (GS ( k); compatible térmicas tipo Epson / Daruma DIG-E200I.
  */
 
 import http from "node:http";

@@ -43,6 +43,46 @@ function line(...parts: Uint8Array[]): Uint8Array {
   return concatChunks([body, nl]);
 }
 
+/** Plantilla opcional para QR en ticket térmico (prefactura). Sustituye `{orderId}` o `{id}`. */
+export function resolveThermalPrefacturaQrUrl(orderId: number): string | undefined {
+  if (typeof process === "undefined") return undefined;
+  const tpl = (process.env.NEXT_PUBLIC_THERMAL_PREFACTURA_QR_URL || "").trim();
+  if (!tpl) return undefined;
+  const id = String(orderId);
+  return tpl.replace(/\{orderId\}/gi, id).replace(/\{id\}/gi, id);
+}
+
+export type EscPosQrOptions = {
+  /** Tamaño de celda 1–8 (DIG-E200I 80 mm: 4–6 suele ser legible). */
+  cellSize?: number;
+  /** Epson: 48=L 49=M 50=Q 51=H */
+  errorCorrection?: number;
+};
+
+/** QR modelo 2 (GS ( k) — compatible térmicas ESC/POS tipo Epson, ej. DIG-E200I. */
+export function buildEscPosQrBytes(data: string, options?: EscPosQrOptions): Uint8Array {
+  const encoder = new TextEncoder();
+  const payload = encoder.encode(data.trim());
+  /** Límite práctico para evitar comandos rotos en firmwares antiguos. */
+  const max = 700;
+  if (payload.length === 0 || payload.length > max) {
+    return new Uint8Array(0);
+  }
+  const cell = Math.min(8, Math.max(1, Math.round(options?.cellSize ?? 6)));
+  const ec = options?.errorCorrection ?? 49;
+  const chunks: Uint8Array[] = [];
+  chunks.push(new Uint8Array([GS, 0x28, 0x6b, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00]));
+  chunks.push(new Uint8Array([GS, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x43, cell]));
+  chunks.push(new Uint8Array([GS, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x45, ec]));
+  const n = payload.length + 3;
+  const pL = n & 0xff;
+  const pH = (n >> 8) & 0xff;
+  const storeHead = new Uint8Array([GS, 0x28, 0x6b, pL, pH, 0x31, 0x50, 0x30]);
+  chunks.push(concatChunks([storeHead, payload]));
+  chunks.push(new Uint8Array([GS, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x51, 0x30]));
+  return concatChunks(chunks);
+}
+
 function dashedRule(width: number): Uint8Array {
   const w = Math.max(8, Math.min(width, 48));
   return encodeEscPosText("-".repeat(w) + "\n");
@@ -74,6 +114,13 @@ export type EscPosReceiptMeta = {
   tipAmount?: number | null;
   /** Precio unitario carta en prefactura (por ítem POS), si diffiere del calculado desde el pedido. */
   lineUnitCartOverrides?: Record<number, number>;
+  /**
+   * URL codificada en QR. `undefined`: usar NEXT_PUBLIC_THERMAL_PREFACTURA_QR_URL si está definida.
+   * `null`: no imprimir QR aunque exista plantilla en env.
+   */
+  qrUrl?: string | null;
+  /** Módulo QR 1–8 (solo si hay qrUrl o plantilla env). */
+  qrCellSize?: number;
 };
 
 export function buildEscPosReceiptBytes(order: PosPrefacturaOrder, meta: EscPosReceiptMeta): Uint8Array {
@@ -150,6 +197,26 @@ export function buildEscPosReceiptBytes(order: PosPrefacturaOrder, meta: EscPosR
   chunks.push(new Uint8Array([ESC, 0x45, 0x01]));
   chunks.push(line(encodeEscPosText(`TOTAL: $${formatPlainCop(ct.totalWithTip)}`)));
   chunks.push(new Uint8Array([ESC, 0x45, 0x00]));
+
+  let effectiveQr: string | undefined;
+  if (meta.qrUrl === null) {
+    effectiveQr = undefined;
+  } else if (typeof meta.qrUrl === "string" && meta.qrUrl.trim()) {
+    effectiveQr = meta.qrUrl.trim();
+  } else {
+    effectiveQr = resolveThermalPrefacturaQrUrl(order.id);
+  }
+  if (effectiveQr) {
+    const qrBytes = buildEscPosQrBytes(effectiveQr, { cellSize: meta.qrCellSize });
+    if (qrBytes.length > 0) {
+      chunks.push(line(new Uint8Array(0)));
+      chunks.push(new Uint8Array([ESC, 0x61, 0x01]));
+      chunks.push(line(encodeEscPosText("Codigo QR")));
+      chunks.push(qrBytes);
+      chunks.push(new Uint8Array([0x0a]));
+      chunks.push(new Uint8Array([ESC, 0x61, 0x00]));
+    }
+  }
 
   chunks.push(line(new Uint8Array(0)));
   for (const wl of wrapToWidth(

@@ -36,6 +36,10 @@ type Body = {
   dateText?: string;
   host?: string;
   port?: number;
+  tipAmount?: number | null;
+  /** Prioridad sobre NEXT_PUBLIC_THERMAL_PREFACTURA_QR_URL; null = sin QR */
+  qrUrl?: string | null;
+  qrCellSize?: number;
 };
 
 export async function POST(request: Request) {
@@ -65,6 +69,9 @@ export async function POST(request: Request) {
     statusLabel: body.statusLabel ?? body.order.status,
     dateText: body.dateText ?? "",
     lineWidth: 48,
+    tipAmount: body.tipAmount,
+    qrUrl: body.qrUrl,
+    qrCellSize: body.qrCellSize,
   });
 
   try {
