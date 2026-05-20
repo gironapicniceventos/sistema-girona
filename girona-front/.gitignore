@@ -19,6 +19,7 @@
 # misc
 .DS_Store
 *.pem
+scripts/.thermal-bridge-certs/
 
 # debug
 npm-debug.log*

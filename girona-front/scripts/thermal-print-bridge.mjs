@@ -1,25 +1,32 @@
 #!/usr/bin/env node
 /**
- * Puente local para imprimir ESC/POS cuando Next.js está en la nube (Vercel, etc.)
- * y la térmica está en la LAN. En la máquina de la caja:
+ * Puente LAN para imprimir ESC/POS desde el POS en Vercel (HTTPS).
  *
- *   node scripts/thermal-print-bridge.mjs
+ *   THERMAL_CUPS_QUEUE=GA-E200I node scripts/thermal-print-bridge.mjs
  *
- * Front (LAN): NEXT_PUBLIC_THERMAL_BRIDGE_URL=http://192.168.1.100:3040
- * Escuchar en toda la red: THERMAL_BRIDGE_BIND=0.0.0.0 (por defecto)
+ * HTTP  :3040  — solo mismo origen / pruebas locales
+ * HTTPS :3041  — usar en Vercel: NEXT_PUBLIC_THERMAL_BRIDGE_URL=https://IP-LAN:3041
+ * (Abra https://IP:3041/health una vez y acepte el certificado autofirmado.)
  *
- * POST /print  JSON: { "host": "192.168.1.50", "port": 9100, "dataBase64": "..." }
- * El buffer puede incluir QR ESC/POS (GS ( k); compatible térmicas tipo Epson / Daruma DIG-E200I.
+ * POST /print  { "host": "cups" | "192.168.x.x", "port": 9100, "dataBase64": "..." }
  */
 
-import { spawn } from "node:child_process";
+import { spawn, execSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import http from "node:http";
+import https from "node:https";
 import net from "node:net";
 import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const PORT = Number(process.env.THERMAL_BRIDGE_PORT || 3040);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const PORT_HTTP = Number(process.env.THERMAL_BRIDGE_PORT || 3040);
+const PORT_HTTPS = Number(process.env.THERMAL_BRIDGE_HTTPS_PORT || 3041);
 const BIND = process.env.THERMAL_BRIDGE_BIND || "0.0.0.0";
 const CUPS_QUEUE = (process.env.THERMAL_CUPS_QUEUE || "GA-E200I").trim();
+const TLS_ENABLED = process.env.THERMAL_BRIDGE_TLS !== "0";
 
 function lanIpv4Addresses() {
   const out = [];
@@ -40,11 +47,29 @@ function sendJson(res, code, obj) {
   res.end(JSON.stringify(obj));
 }
 
-const server = http.createServer((req, res) => {
+function ensureTlsMaterial() {
+  const dir = path.join(__dirname, ".thermal-bridge-certs");
+  mkdirSync(dir, { recursive: true });
+  const keyPath = path.join(dir, "key.pem");
+  const certPath = path.join(dir, "cert.pem");
+  if (!existsSync(keyPath) || !existsSync(certPath)) {
+    console.error("Generando certificado TLS autofirmado (válido ~10 años)...");
+    execSync(
+      `openssl req -x509 -newkey rsa:2048 -keyout "${keyPath}" -out "${certPath}" -days 3650 -nodes -subj "/CN=thermal-print-bridge"`,
+      { stdio: "inherit" },
+    );
+  }
+  return {
+    key: readFileSync(keyPath),
+    cert: readFileSync(certPath),
+  };
+}
+
+function handleRequest(req, res) {
   if (req.method === "OPTIONS") {
     res.writeHead(204, {
       "access-control-allow-origin": "*",
-      "access-control-allow-methods": "POST, OPTIONS",
+      "access-control-allow-methods": "POST, OPTIONS, GET",
       "access-control-allow-headers": "content-type",
     });
     res.end();
@@ -52,7 +77,13 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === "GET" && req.url === "/health") {
-    sendJson(res, 200, { ok: true, port: PORT, bind: BIND, cupsQueue: CUPS_QUEUE || null });
+    sendJson(res, 200, {
+      ok: true,
+      httpPort: PORT_HTTP,
+      httpsPort: TLS_ENABLED ? PORT_HTTPS : null,
+      bind: BIND,
+      cupsQueue: CUPS_QUEUE || null,
+    });
     return;
   }
 
@@ -143,19 +174,37 @@ const server = http.createServer((req, res) => {
       finish(200, { ok: true, bytes: buf.length });
     });
   });
-});
+}
 
-server.listen(PORT, BIND, () => {
-  console.error(`thermal-print-bridge escuchando en ${BIND}:${PORT}`);
+function logUrls() {
   const ips = lanIpv4Addresses();
+  console.error(`thermal-print-bridge escuchando en ${BIND}`);
   if (ips.length) {
     for (const ip of ips) {
-      console.error(`  → http://${ip}:${PORT}/print  (use esta URL en Vercel / POS)`);
+      console.error(`  HTTP  → http://${ip}:${PORT_HTTP}/print`);
+      if (TLS_ENABLED) {
+        console.error(`  HTTPS → https://${ip}:${PORT_HTTPS}/print  ← Vercel (acepte certificado en /health)`);
+      }
     }
   } else {
-    console.error(`  → http://127.0.0.1:${PORT}/print`);
+    console.error(`  HTTP  → http://127.0.0.1:${PORT_HTTP}/print`);
+    if (TLS_ENABLED) console.error(`  HTTPS → https://127.0.0.1:${PORT_HTTPS}/print`);
   }
   if (CUPS_QUEUE) {
-    console.error(`  USB/CUPS: en el POS use host "cups" (cola ${CUPS_QUEUE})`);
+    console.error(`  Impresora USB: host "cups" (cola ${CUPS_QUEUE})`);
   }
-});
+}
+
+http.createServer(handleRequest).listen(PORT_HTTP, BIND, logUrls);
+
+if (TLS_ENABLED) {
+  try {
+    const tls = ensureTlsMaterial();
+    https.createServer(tls, handleRequest).listen(PORT_HTTPS, BIND, () => {
+      console.error(`  TLS activo en puerto ${PORT_HTTPS}`);
+    });
+  } catch (e) {
+    console.error("No se pudo iniciar HTTPS (¿openssl instalado?):", e.message);
+    console.error("Instale openssl o use THERMAL_BRIDGE_TLS=0 solo en desarrollo local.");
+  }
+}

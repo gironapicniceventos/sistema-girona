@@ -1198,7 +1198,8 @@ export default function PosScreen() {
   const POS_THERMAL_HOST_KEY = "pos_thermal_printer_host";
   const POS_THERMAL_PORT_KEY = "pos_thermal_printer_port";
   const POS_THERMAL_BRIDGE_KEY = "pos_thermal_bridge_url";
-  const DEFAULT_THERMAL_BRIDGE_PORT = 3040;
+  const DEFAULT_THERMAL_BRIDGE_HTTP_PORT = 3040;
+  const DEFAULT_THERMAL_BRIDGE_HTTPS_PORT = 3041;
 
   function uint8ToBase64(bytes: Uint8Array): string {
     let bin = "";
@@ -1215,6 +1216,22 @@ export default function PosScreen() {
     return t.endsWith("/print") ? t : `${t}/print`;
   }
 
+  /** Vercel es HTTPS: el navegador bloquea fetch a http://LAN (mixed content). */
+  function upgradeBridgeUrlForHttpsPage(base: string): string {
+    if (typeof window === "undefined" || window.location.protocol !== "https:") return base;
+    try {
+      const u = new URL(base.trim());
+      if (u.protocol !== "http:") return base;
+      u.protocol = "https:";
+      if (u.port === String(DEFAULT_THERMAL_BRIDGE_HTTP_PORT) || !u.port) {
+        u.port = String(DEFAULT_THERMAL_BRIDGE_HTTPS_PORT);
+      }
+      return u.toString().replace(/\/$/, "");
+    } catch {
+      return base;
+    }
+  }
+
   function isPrivateBridgeBaseUrl(raw: string): boolean {
     try {
       const u = new URL(raw.trim());
@@ -1226,39 +1243,45 @@ export default function PosScreen() {
   }
 
   function resolveThermalBridgePrintUrl(): string {
+    const finalize = (base: string) =>
+      normalizeThermalBridgePrintUrl(upgradeBridgeUrlForHttpsPage(base));
+
     const fromEnv = (process.env.NEXT_PUBLIC_THERMAL_BRIDGE_URL || "").trim();
     if (fromEnv && isPrivateBridgeBaseUrl(fromEnv)) {
-      return normalizeThermalBridgePrintUrl(fromEnv);
+      return finalize(fromEnv);
     }
 
     const stored =
       typeof window !== "undefined" ? window.localStorage.getItem(POS_THERMAL_BRIDGE_KEY) : null;
     if (stored?.trim() && isPrivateBridgeBaseUrl(stored)) {
-      return normalizeThermalBridgePrintUrl(stored);
+      return finalize(stored);
     }
 
     if (typeof window === "undefined") return "";
 
-    const h = window.location.hostname;
-    const sameMachine = h === "localhost" || h === "127.0.0.1";
-    const defaultHint = sameMachine
-      ? `http://127.0.0.1:${DEFAULT_THERMAL_BRIDGE_PORT}`
-      : `http://192.168.1.100:${DEFAULT_THERMAL_BRIDGE_PORT}`;
+    const onHttps = window.location.protocol === "https:";
+    const defaultHint = onHttps
+      ? `https://192.168.0.228:${DEFAULT_THERMAL_BRIDGE_HTTPS_PORT}`
+      : `http://127.0.0.1:${DEFAULT_THERMAL_BRIDGE_HTTP_PORT}`;
 
     const entered = window.prompt(
-      "URL del puente de impresión en la red (PC donde corre thermal-print-bridge).\n" +
-        "Ejemplo: http://192.168.1.100:3040\n" +
-        "(IP LAN de la caja, no use :631)",
+      "URL del puente en la PC de la caja.\n" +
+        (onHttps
+          ? "Use HTTPS (puerto 3041), ej: https://192.168.0.228:3041\nAbra /health antes y acepte el certificado."
+          : "Ejemplo: http://192.168.0.228:3040"),
       defaultHint,
     );
     if (!entered?.trim()) return "";
     const base = entered.trim().replace(/\/print\/?$/i, "").replace(/\/$/, "");
     if (!isPrivateBridgeBaseUrl(base)) {
-      window.alert("URL del puente no válida. Use http:// + IP privada (192.168.x.x) y puerto 3040.");
+      window.alert(
+        "URL no válida. Use https://IP-LAN:3041 (Vercel) o http://IP:3040 (solo desarrollo local).",
+      );
       return "";
     }
-    window.localStorage.setItem(POS_THERMAL_BRIDGE_KEY, base);
-    return normalizeThermalBridgePrintUrl(base);
+    const saved = upgradeBridgeUrlForHttpsPage(base);
+    window.localStorage.setItem(POS_THERMAL_BRIDGE_KEY, saved);
+    return finalize(saved);
   }
 
   function resolveThermalPrinterTarget(): { host: string; port: number } | null {
@@ -1382,7 +1405,18 @@ export default function PosScreen() {
         );
       }
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : "Error imprimiendo ESC/POS.");
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/networkerror|failed to fetch/i.test(msg)) {
+        window.alert(
+          "El navegador bloqueó la conexión al puente (suele ser HTTPS→HTTP).\n\n" +
+            "1) Reinicie el puente: THERMAL_CUPS_QUEUE=GA-E200I node scripts/thermal-print-bridge.mjs\n" +
+            "2) Abra en el navegador: https://192.168.0.228:3041/health y acepte el certificado\n" +
+            "3) En Vercel: NEXT_PUBLIC_THERMAL_BRIDGE_URL=https://192.168.0.228:3041\n" +
+            "4) localStorage.removeItem('pos_thermal_bridge_url'); recargue y ESC/POS",
+        );
+      } else {
+        window.alert(msg || "Error imprimiendo ESC/POS.");
+      }
     }
   }
 
