@@ -27,9 +27,15 @@ export function normalizeThermalPrinterHost(raw: string): { host: string; port?:
   return { host: s.toLowerCase() };
 }
 
+/** Impresora USB vía cola CUPS en el PC del puente (escribir "cups" en el POS). */
+export function isCupsPrinterHost(host: string): boolean {
+  return host.trim().toLowerCase() === "cups";
+}
+
 export function isPrivateOrLocalPrinterHost(host: string): boolean {
   const h = host.trim().toLowerCase();
   if (!h) return false;
+  if (isCupsPrinterHost(h)) return true;
   if (h === "localhost") return true;
 
   const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);

@@ -1197,6 +1197,8 @@ export default function PosScreen() {
 
   const POS_THERMAL_HOST_KEY = "pos_thermal_printer_host";
   const POS_THERMAL_PORT_KEY = "pos_thermal_printer_port";
+  const POS_THERMAL_BRIDGE_KEY = "pos_thermal_bridge_url";
+  const DEFAULT_THERMAL_BRIDGE_PORT = 3040;
 
   function uint8ToBase64(bytes: Uint8Array): string {
     let bin = "";
@@ -1207,17 +1209,56 @@ export default function PosScreen() {
     return btoa(bin);
   }
 
-  function thermalBridgePrintUrl(): string {
-    const raw = (process.env.NEXT_PUBLIC_THERMAL_BRIDGE_URL || "").trim();
-    if (!raw) return "";
-    const t = raw.replace(/\/$/, "");
+  function normalizeThermalBridgePrintUrl(raw: string): string {
+    const t = raw.trim().replace(/\/$/, "");
+    if (!t) return "";
     return t.endsWith("/print") ? t : `${t}/print`;
   }
 
-  function isPosOnLocalDevHost(): boolean {
-    if (typeof window === "undefined") return false;
+  function isPrivateBridgeBaseUrl(raw: string): boolean {
+    try {
+      const u = new URL(raw.trim());
+      if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+      return isPrivateOrLocalPrinterHost(u.hostname);
+    } catch {
+      return false;
+    }
+  }
+
+  function resolveThermalBridgePrintUrl(): string {
+    const fromEnv = (process.env.NEXT_PUBLIC_THERMAL_BRIDGE_URL || "").trim();
+    if (fromEnv && isPrivateBridgeBaseUrl(fromEnv)) {
+      return normalizeThermalBridgePrintUrl(fromEnv);
+    }
+
+    const stored =
+      typeof window !== "undefined" ? window.localStorage.getItem(POS_THERMAL_BRIDGE_KEY) : null;
+    if (stored?.trim() && isPrivateBridgeBaseUrl(stored)) {
+      return normalizeThermalBridgePrintUrl(stored);
+    }
+
+    if (typeof window === "undefined") return "";
+
     const h = window.location.hostname;
-    return h === "localhost" || h === "127.0.0.1";
+    const sameMachine = h === "localhost" || h === "127.0.0.1";
+    const defaultHint = sameMachine
+      ? `http://127.0.0.1:${DEFAULT_THERMAL_BRIDGE_PORT}`
+      : `http://192.168.1.100:${DEFAULT_THERMAL_BRIDGE_PORT}`;
+
+    const entered = window.prompt(
+      "URL del puente de impresión en la red (PC donde corre thermal-print-bridge).\n" +
+        "Ejemplo: http://192.168.1.100:3040\n" +
+        "(IP LAN de la caja, no use :631)",
+      defaultHint,
+    );
+    if (!entered?.trim()) return "";
+    const base = entered.trim().replace(/\/print\/?$/i, "").replace(/\/$/, "");
+    if (!isPrivateBridgeBaseUrl(base)) {
+      window.alert("URL del puente no válida. Use http:// + IP privada (192.168.x.x) y puerto 3040.");
+      return "";
+    }
+    window.localStorage.setItem(POS_THERMAL_BRIDGE_KEY, base);
+    return normalizeThermalBridgePrintUrl(base);
   }
 
   function resolveThermalPrinterTarget(): { host: string; port: number } | null {
@@ -1240,9 +1281,11 @@ export default function PosScreen() {
     }
 
     const entered = window.prompt(
-      "IP de la impresora térmica (ESC/POS, puerto 9100).\n" +
-        "Ejemplo: 192.168.1.50 o 127.0.0.1\n" +
-        "No use :631 (eso es CUPS, no el POS).",
+      "Destino de impresión:\n" +
+        "• USB en la PC del puente → escriba: cups\n" +
+        "• Térmica por cable/red (puerto 9100) → IP, ej: 192.168.0.50\n" +
+        "No use 192.168.0.228 (esa es la PC del puente, no la impresora).",
+      "cups",
     );
     if (!entered?.trim()) return null;
     const parsed = normalizeThermalPrinterHost(entered);
@@ -1260,16 +1303,12 @@ export default function PosScreen() {
   }
 
   async function handleEscPosNetworkPrint(order: PosOrderOut, tipAmount?: number) {
-    const bridge = thermalBridgePrintUrl();
-    if (!bridge && !isPosOnLocalDevHost()) {
+    const bridge = resolveThermalBridgePrintUrl();
+    if (!bridge) {
       window.alert(
-        "Este POS está en Vercel: el servidor no puede llegar a su impresora USB/LAN.\n\n" +
-          "1) En la PC de la caja ejecute:\n" +
-          "   node girona-front/scripts/thermal-print-bridge.mjs\n\n" +
-          "2) En Vercel → Settings → Environment Variables:\n" +
-          "   NEXT_PUBLIC_THERMAL_BRIDGE_URL=http://127.0.0.1:3040\n\n" +
-          "3) Vuelva a desplegar o redeploy y recargue el navegador.\n\n" +
-          "Luego pulse ESC/POS e indique la IP de la térmica (puerto 9100, no 631).",
+        "Configure el puente en la PC de la caja:\n" +
+          "  THERMAL_BRIDGE_BIND=0.0.0.0 node scripts/thermal-print-bridge.mjs\n\n" +
+          "Luego indique http://IP-LAN-DE-LA-CAJA:3040",
       );
       return;
     }
@@ -1303,9 +1342,12 @@ export default function PosScreen() {
         });
         const payload = (await res.json().catch(() => null)) as { message?: string } | null;
         if (!res.ok) {
-          window.alert(
+          const detail =
             (typeof payload?.message === "string" && payload.message) ||
-              "El puente local no pudo enviar a la impresora.",
+            "El puente no pudo enviar a la impresora.";
+          window.alert(
+            `${detail}\n\nImpresora: ${host}:${port} (debe ser IP LAN de la térmica, puerto 9100).\n` +
+              `Puente: ${bridge.replace(/\/print$/, "")}`,
           );
         }
         return;

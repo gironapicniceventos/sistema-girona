@@ -7,7 +7,7 @@ En Girona, el botón **ESC/POS** del pedido genera bytes en el navegador con la 
 ## Conexión
 
 1. **Red (recomendada en caja):** IP fija o DHCP reservado; el POS usa **TCP al puerto 9100** (RAW).
-2. **Puente local:** si el front corre en **HTTPS**, el navegador no puede abrir `ws://`/`tcp` directo a la LAN desde el cliente en algunos despliegues; use `scripts/thermal-print-bridge.mjs` y `NEXT_PUBLIC_THERMAL_BRIDGE_URL` (ver comentarios en ese script).
+2. **Puente LAN:** en la PC de la caja, `node scripts/thermal-print-bridge.mjs` (escucha `0.0.0.0:3040`). En Vercel: `NEXT_PUBLIC_THERMAL_BRIDGE_URL=http://IP-LAN-CAJA:3040`. Cualquier tablet/PC de la misma red abre el POS y el navegador llama a esa IP (no `127.0.0.1` salvo que el POS y el puente sean el mismo equipo).
 3. **API Next `/api/pos/print/escpos`:** solo permite hosts de red privada o `THERMAL_PRINTER_HOST` explícito.
 
 ## QR en el ticket
