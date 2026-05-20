@@ -33,6 +33,7 @@ type MenuIngredient = {
   weight: string | number;
   price: string | number;
   total?: string | number;
+  product_id?: number | null;
 };
 
 type RecipeIngredientDraft = {
@@ -40,12 +41,14 @@ type RecipeIngredientDraft = {
   unit: string;
   weight: string;
   price: string;
+  productId?: number | null;
 };
 
 type InventoryProduct = {
   id: number;
   name: string;
   unit: string | null;
+  onHand: string | number | null;
   source: "ingredient" | "recipe";
 };
 
@@ -162,6 +165,18 @@ function formatUnitAbbr(value: string | null | undefined) {
   return raw.toUpperCase();
 }
 
+function formatStockAvailable(product: InventoryProduct | undefined) {
+  if (!product || product.source !== "ingredient") return "-";
+  if (product.onHand === null || product.onHand === undefined || product.onHand === "") return "-";
+  const stock = parseDecimalInput(product.onHand ?? "");
+  const formattedStock = new Intl.NumberFormat("es-CO", {
+    maximumFractionDigits: 4,
+    minimumFractionDigits: 0,
+  }).format(stock);
+  const unit = formatUnitAbbr(product.unit);
+  return `${formattedStock}${unit ? ` ${unit}` : ""}`;
+}
+
 function isMenuIngredient(value: unknown): value is MenuIngredient {
   return (
     typeof value === "object" &&
@@ -218,6 +233,7 @@ function normalizeRecipeDraft(ingredients: MenuItem["ingredients"]) {
     unit: item.unit ?? "",
     weight: item.weight !== undefined ? String(item.weight) : "",
     price: item.price !== undefined ? String(item.price) : "",
+    productId: typeof item.product_id === "number" ? item.product_id : null,
   }));
 }
 
@@ -372,6 +388,7 @@ export default function Menu({
             id: Number(item?.id),
             name: String(item?.name ?? ""),
             unit: item?.unit ? String(item.unit) : null,
+            onHand: item?.on_hand ?? null,
             source: "ingredient" as const,
           }))
           .filter((item) => Number.isFinite(item.id) && item.name);
@@ -381,6 +398,7 @@ export default function Menu({
             id: Number(item?.id),
             name: String(item?.name ?? ""),
             unit: item?.unit ? String(item.unit) : null,
+            onHand: null,
             source: "recipe" as const,
           }))
           .filter((item) => Number.isFinite(item.id) && item.name)
@@ -615,7 +633,7 @@ export default function Menu({
     setFormMode("create");
     setEditingId(null);
     setEditingItem(null);
-    setRecipeDraft([{ name: "", unit: "", weight: "", price: "" }]);
+    setRecipeDraft([{ name: "", unit: "", weight: "", price: "", productId: null }]);
     setEditingOriginalCategoryKey(null);
     setSubmitStatus({ kind: "idle" });
     setCategoryInput("");
@@ -683,14 +701,31 @@ export default function Menu({
               ...row,
               name,
               unit: selected?.unit ?? row.unit ?? "",
+              productId: selected?.source === "ingredient" ? selected.id : null,
             }
           : row,
       ),
     );
   }
 
+  function getRecipeRowInventoryProduct(row: RecipeIngredientDraft) {
+    if (row.productId != null) {
+      return inventoryProducts.find(
+        (item) => item.source === "ingredient" && item.id === row.productId,
+      );
+    }
+    const name = row.name.trim().toLowerCase();
+    if (!name) return undefined;
+    return inventoryProducts.find(
+      (item) => item.source === "ingredient" && item.name.toLowerCase() === name,
+    );
+  }
+
   function addRecipeRow() {
-    setRecipeDraft((prev) => [...prev, { name: "", unit: "", weight: "", price: "" }]);
+    setRecipeDraft((prev) => [
+      ...prev,
+      { name: "", unit: "", weight: "", price: "", productId: null },
+    ]);
   }
 
   function removeRecipeRow(index: number) {
@@ -704,6 +739,7 @@ export default function Menu({
         unit: row.unit ? row.unit.trim().toUpperCase() : "",
         weight: parseDecimalInput(row.weight),
         price: parseDecimalInput(row.price),
+        productId: row.productId ?? null,
       }))
       .filter((row) => row.name || row.weight || row.price);
 
@@ -733,6 +769,7 @@ export default function Menu({
         weight: row.weight,
         price: row.price,
         total: Number((row.weight * row.price).toFixed(2)),
+        product_id: row.productId ?? undefined,
       })),
     };
   }
@@ -746,6 +783,7 @@ export default function Menu({
         unit: row.unit.trim().toUpperCase(),
         weight: parseDecimalInput(row.weight),
         price: parseDecimalInput(row.price),
+        productId: row.productId ?? null,
       }))
       .filter((row) => row.name || row.weight || row.price);
 
@@ -774,6 +812,7 @@ export default function Menu({
       weight: row.weight,
       price: row.price,
       total: Number((row.weight * row.price).toFixed(2)),
+      product_id: row.productId ?? undefined,
     }));
 
     setRecipeStatus({ kind: "loading" });
@@ -1256,6 +1295,7 @@ export default function Menu({
                   <thead className="bg-gray-1 text-left text-xs font-semibold uppercase tracking-wide text-dark dark:bg-white/5 dark:text-white">
                     <tr>
                       <th className="px-3 py-2">Ingrediente</th>
+                      <th className="px-3 py-2">Stock disponible</th>
                       <th className="px-3 py-2">Peso</th>
                       <th className="px-3 py-2">Precio</th>
                       <th className="px-3 py-2">Total</th>
@@ -1267,6 +1307,7 @@ export default function Menu({
                       const weight = parseDecimalInput(row.weight);
                       const price = parseDecimalInput(row.price);
                       const total = weight * price;
+                      const selectedProduct = getRecipeRowInventoryProduct(row);
                       return (
                         <tr key={`${row.name}-${index}`} className="border-t border-stroke dark:border-dark-3">
                           <td className="px-3 py-2">
@@ -1287,6 +1328,11 @@ export default function Menu({
                                 {row.unit ? row.unit.replace(/mililitros/i, "ML").replace(/gramos/i, "GR").replace(/unidades/i, "Unidad") : "-"}
                               </span>
                             </div>
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className="inline-flex min-w-[7rem] rounded-lg border border-stroke bg-gray-1 px-2 py-1 text-sm font-medium text-dark dark:border-dark-3 dark:bg-white/5 dark:text-white">
+                              {formatStockAvailable(selectedProduct)}
+                            </span>
                           </td>
                           <td className="px-3 py-2">
                             <input
@@ -1459,6 +1505,7 @@ export default function Menu({
                 <thead className="bg-gray-1 text-left text-xs font-semibold uppercase tracking-wide text-dark dark:bg-white/5 dark:text-white">
                   <tr>
                     <th className="px-3 py-2">Ingrediente</th>
+                    <th className="px-3 py-2">Stock disponible</th>
                     <th className="px-3 py-2">Peso</th>
                     <th className="px-3 py-2">Precio</th>
                     <th className="px-3 py-2">Total</th>
@@ -1469,6 +1516,7 @@ export default function Menu({
                     const weight = parseDecimalInput(row.weight);
                     const price = parseDecimalInput(row.price);
                     const total = weight * price;
+                    const selectedProduct = getRecipeRowInventoryProduct(row);
                     return (
                       <tr key={`${row.name}-${index}`} className="border-t border-stroke dark:border-dark-3">
                         <td className="px-3 py-2">
@@ -1480,6 +1528,11 @@ export default function Menu({
                               {formatUnitAbbr(row.unit) || "-"}
                             </span>
                           </div>
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className="text-sm font-medium text-dark dark:text-white">
+                            {formatStockAvailable(selectedProduct)}
+                          </span>
                         </td>
                         <td className="px-3 py-2">
                           <span className="text-sm text-dark dark:text-white">

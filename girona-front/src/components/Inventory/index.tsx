@@ -1217,18 +1217,6 @@ export default function Inventory({
       return;
     }
 
-    for (let i = 0; i < recipeIngredients.length; i += 1) {
-      const row = recipeIngredients[i];
-      if (!row.name.trim() && !row.quantity.trim()) continue;
-      if (!row.productId || !Number.isFinite(row.productId)) {
-        setSubmitStatus({
-          kind: "error",
-          message: `En la fila ${i + 1}, elegí el ingrediente con el buscador (debe quedar vinculado al inventario).`,
-        });
-        return;
-      }
-    }
-
     const cleanedIngredients = recipeIngredients
       .map((item) => {
         const name = item.name.trim();
@@ -1258,13 +1246,6 @@ export default function Inventory({
         setSubmitStatus({
           kind: "error",
           message: "Cada ingrediente debe tener nombre y cantidad.",
-        });
-        return;
-      }
-      if (!item.product_id) {
-        setSubmitStatus({
-          kind: "error",
-          message: "Cada ingrediente debe estar vinculado al inventario (usá el buscador).",
         });
         return;
       }

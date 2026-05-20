@@ -1277,12 +1277,7 @@ export default function PosScreen() {
     if (useAutoWaiter && sessionWaiterId != null) {
       const waiterIdForDeliver = order.waiter_id == null ? sessionWaiterId : null;
       void (async () => {
-        const updated = await handleMarkOrderDelivered(order.id, waiterIdForDeliver);
-        if (updated) {
-          openPaymentModal(updated);
-        } else {
-          window.alert("No se pudo marcar el pedido como entregado. Intenta de nuevo o revisa la conexión.");
-        }
+        await handleMarkOrderDelivered(order.id, waiterIdForDeliver, true);
       })();
       return;
     }
@@ -1308,6 +1303,7 @@ export default function PosScreen() {
   async function handleMarkOrderDelivered(
     orderId: number,
     waiterId: number | null,
+    alertOnError = false,
   ): Promise<PosOrderOut | null> {
     try {
       setWaiterStatus({ kind: "loading" });
@@ -1318,13 +1314,15 @@ export default function PosScreen() {
       });
       const responsePayload = (await res.json().catch(() => null)) as any;
       if (!res.ok) {
+        const message =
+          (typeof responsePayload?.message === "string" && responsePayload.message) ||
+          (typeof responsePayload?.detail === "string" && responsePayload.detail) ||
+          "No se pudo marcar el pedido como entregado.";
         setWaiterStatus({
           kind: "error",
-          message:
-            (typeof responsePayload?.message === "string" && responsePayload.message) ||
-            (typeof responsePayload?.detail === "string" && responsePayload.detail) ||
-            "No se pudo marcar el pedido como entregado.",
+          message,
         });
+        if (alertOnError) window.alert(message);
         return null;
       }
       const updated = responsePayload as PosOrderOut;
@@ -1332,10 +1330,12 @@ export default function PosScreen() {
       setWaiterStatus({ kind: "success", message: "Pedido entregado." });
       return updated;
     } catch {
+      const message = "Error marcando el pedido como entregado.";
       setWaiterStatus({
         kind: "error",
-        message: "Error marcando el pedido como entregado.",
+        message,
       });
+      if (alertOnError) window.alert(message);
       return null;
     }
   }
@@ -1684,7 +1684,6 @@ export default function PosScreen() {
     const updated = await handleMarkOrderDelivered(waiterOrder.id, waiterId);
     if (!updated) return;
     closeWaiterModal();
-    openPaymentModal(updated);
   }
 
   function resetPaymentForm() {
@@ -2109,14 +2108,16 @@ export default function PosScreen() {
       );
       const payload = (await res.json().catch(() => null)) as any;
       if (!res.ok) {
+        const message =
+          (typeof payload?.message === "string" && payload.message) ||
+          (isAppending
+            ? "No se pudieron agregar items a la comanda."
+            : "No se pudo crear la orden.");
         setSubmitStatus({
           kind: "error",
-          message:
-            (typeof payload?.message === "string" && payload.message) ||
-            (isAppending
-              ? "No se pudieron agregar items a la comanda."
-              : "No se pudo crear la orden."),
+          message,
         });
+        window.alert(message);
         return;
       }
       const updatedOrder = payload as PosOrderOut;
@@ -2143,12 +2144,14 @@ export default function PosScreen() {
         openPayOrderFlow(updatedOrder);
       }
     } catch {
+      const message = appendingOrderId
+        ? "Error agregando items a la comanda."
+        : "Error creando la orden.";
       setSubmitStatus({
         kind: "error",
-        message: appendingOrderId
-          ? "Error agregando items a la comanda."
-          : "Error creando la orden.",
+        message,
       });
+      window.alert(message);
     }
   }
 

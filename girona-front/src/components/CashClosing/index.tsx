@@ -32,6 +32,16 @@ type PurchaseRow = {
   items?: unknown[];
 };
 
+type ProfitSummary = {
+  sales_count: number;
+  sales_total: number | string;
+  inventory_cost_total: number | string;
+  gross_profit: number | string;
+  gross_margin_pct?: number | string | null;
+  sales_with_inventory_cost_count: number;
+  sales_without_inventory_cost_count: number;
+};
+
 function safeNumber(value: unknown) {
   const num = typeof value === "number" ? value : Number.parseFloat(String(value));
   return Number.isFinite(num) ? num : 0;
@@ -44,6 +54,14 @@ function formatMoney(value: unknown) {
     maximumFractionDigits: 0,
     minimumFractionDigits: 0,
   }).format(safeNumber(value));
+}
+
+function formatPercent(value: number | null) {
+  if (value == null || !Number.isFinite(value)) return "N/D";
+  return `${new Intl.NumberFormat("es-CO", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+  }).format(value)}%`;
 }
 
 function todayYmd() {
@@ -145,6 +163,10 @@ type CashClosingMetrics = {
   totalVentas: number;
   totalPropinas: number;
   totalCortesias: number;
+  costoInventarioVendido: number;
+  utilidadBruta: number;
+  margenBrutoPct: number | null;
+  ventasSinCostoInventario: number;
   egresosCompras: number;
   totalDatofono: number;
   totalQr: number;
@@ -209,6 +231,10 @@ function buildCashClosingPdf(input: CashClosingPdfInput) {
     `QR (incl. transferencias históricas): ${formatMoney(metrics.totalQr)}`,
     `Nequi (incl. billetera histórica): ${formatMoney(metrics.totalNequi)}`,
     `Cortesias: ${formatMoney(metrics.totalCortesias)}`,
+    `Costo inventario vendido: ${formatMoney(metrics.costoInventarioVendido)}`,
+    `Utilidad bruta: ${formatMoney(metrics.utilidadBruta)}`,
+    `Margen bruto: ${formatPercent(metrics.margenBrutoPct)}`,
+    `Ventas sin costo de inventario asociado: ${metrics.ventasSinCostoInventario}`,
     `Compras / egresos: ${formatMoney(metrics.egresosCompras)} (${purchasesDay.length} registro(s))`,
     `Ingresos - egresos (referencia): ${formatMoney(metrics.totalVentas - metrics.egresosCompras)}`,
   ];
@@ -316,6 +342,7 @@ export default function CashClosing() {
   const [dateYmd, setDateYmd] = useState(todayYmd);
   const [sales, setSales] = useState<SaleRow[]>([]);
   const [purchasesDay, setPurchasesDay] = useState<PurchaseRow[]>([]);
+  const [profitSummary, setProfitSummary] = useState<ProfitSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>({ ...EMPTY_DRAFT });
@@ -328,23 +355,38 @@ export default function CashClosing() {
     setLoading(true);
     setError(null);
     try {
-      const [salesRes, purRes] = await Promise.all([
+      const [salesRes, purRes, profitRes] = await Promise.all([
         fetch(`/api/sales?on_date=${encodeURIComponent(dateYmd)}`, { cache: "no-store" }),
         fetch("/api/inventory/purchases", { cache: "no-store" }),
+        fetch(`/api/sales/summary/profit?on_date=${encodeURIComponent(dateYmd)}`, {
+          cache: "no-store",
+        }),
       ]);
-      const [salesJson, purJson] = await Promise.all([salesRes.json().catch(() => null), purRes.json().catch(() => null)]);
+      const [salesJson, purJson, profitJson] = await Promise.all([
+        salesRes.json().catch(() => null),
+        purRes.json().catch(() => null),
+        profitRes.json().catch(() => null),
+      ]);
       if (!salesRes.ok) {
         throw new Error(
           (salesJson as { message?: string })?.message || "No se pudieron cargar las ventas del día",
         );
       }
+      if (!profitRes.ok) {
+        throw new Error(
+          (profitJson as { message?: string })?.message ||
+            "No se pudo cargar el costo de inventario vendido",
+        );
+      }
       const s = Array.isArray(salesJson) ? (salesJson as SaleRow[]) : [];
       setSales(s);
+      setProfitSummary(profitJson && typeof profitJson === "object" ? (profitJson as ProfitSummary) : null);
       const allPur = purRes.ok && Array.isArray(purJson) ? (purJson as PurchaseRow[]) : [];
       setPurchasesDay(allPur.filter((p) => purchaseOnDate(p, dateYmd)));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al cargar datos");
       setSales([]);
+      setProfitSummary(null);
       setPurchasesDay([]);
     } finally {
       setLoading(false);
@@ -361,6 +403,21 @@ export default function CashClosing() {
     const totalPropinas = sales.reduce((a, s) => a + safeNumber(s.service_total), 0);
     const totalCortesias = sales.reduce((a, s) => a + safeNumber(s.courtesy_total), 0);
     const egresosCompras = purchasesDay.reduce((a, p) => a + safeNumber(p.total_cost), 0);
+    const costoInventarioVendido = profitSummary
+      ? safeNumber(profitSummary.inventory_cost_total)
+      : 0;
+    const utilidadBruta = profitSummary
+      ? safeNumber(profitSummary.gross_profit)
+      : totalVentas - costoInventarioVendido;
+    const margenValue =
+      profitSummary && profitSummary.gross_margin_pct !== null
+        ? safeNumber(profitSummary.gross_margin_pct)
+        : null;
+    const margenBrutoPct =
+      margenValue !== null && Number.isFinite(margenValue) ? margenValue : null;
+    const ventasSinCostoInventario = profitSummary
+      ? Number(profitSummary.sales_without_inventory_cost_count || 0)
+      : 0;
     let totalDatofono = 0;
     let totalQr = 0;
     let totalNequi = 0;
@@ -385,12 +442,16 @@ export default function CashClosing() {
       totalVentas,
       totalPropinas,
       totalCortesias,
+      costoInventarioVendido,
+      utilidadBruta,
+      margenBrutoPct,
+      ventasSinCostoInventario,
       egresosCompras,
       totalDatofono,
       totalQr,
       totalNequi,
     };
-  }, [sales, purchasesDay]);
+  }, [sales, purchasesDay, profitSummary]);
 
   const opening = safeNumber(draft.opening);
   const cashIn = safeNumber(draft.cashIn);
@@ -532,6 +593,28 @@ export default function CashClosing() {
           <p className="text-xs font-medium uppercase text-body-color dark:text-dark-6">Cortesías (monto)</p>
           <p className="mt-1 text-2xl font-semibold text-dark dark:text-white">{formatMoney(metrics.totalCortesias)}</p>
         </div>
+        <div className="rounded-lg border border-stroke border-l-4 border-l-amber-500 bg-white p-4 shadow-1 dark:border-dark-3 dark:bg-gray-dark">
+          <p className="text-xs font-medium uppercase text-body-color dark:text-dark-6">
+            Costo inventario vendido
+          </p>
+          <p className="mt-1 text-2xl font-semibold text-dark dark:text-white">
+            {formatMoney(metrics.costoInventarioVendido)}
+          </p>
+          <p className="text-xs text-body-color dark:text-dark-6">
+            Según recetas y movimientos de venta
+          </p>
+        </div>
+        <div className="rounded-lg border border-stroke border-l-4 border-l-emerald-500 bg-white p-4 shadow-1 dark:border-dark-3 dark:bg-gray-dark">
+          <p className="text-xs font-medium uppercase text-body-color dark:text-dark-6">
+            Utilidad bruta
+          </p>
+          <p className="mt-1 text-2xl font-semibold text-dark dark:text-white">
+            {formatMoney(metrics.utilidadBruta)}
+          </p>
+          <p className="text-xs text-body-color dark:text-dark-6">
+            Margen {formatPercent(metrics.margenBrutoPct)}
+          </p>
+        </div>
         <div className="rounded-lg border border-stroke border-l-4 border-l-secondary bg-white p-4 shadow-1 dark:border-dark-3 dark:bg-gray-dark">
           <p className="text-xs font-medium uppercase text-body-color dark:text-dark-6">Compras / egresos (día)</p>
           <p className="mt-1 text-2xl font-semibold text-dark dark:text-white">{formatMoney(metrics.egresosCompras)}</p>
@@ -539,6 +622,17 @@ export default function CashClosing() {
             {purchasesDay.length} registro(s) de compra
           </p>
         </div>
+        {metrics.ventasSinCostoInventario > 0 ? (
+          <div className="rounded-lg border border-red-light bg-red-light-5 p-4 dark:border-red-light/40 dark:bg-red-light-5/10">
+            <p className="text-xs font-medium uppercase text-red">Ventas sin costo asociado</p>
+            <p className="mt-1 text-2xl font-semibold text-red">
+              {metrics.ventasSinCostoInventario}
+            </p>
+            <p className="text-xs text-red">
+              Ventas históricas o sin movimientos de inventario
+            </p>
+          </div>
+        ) : null}
         <div className="rounded-lg border border-stroke bg-primary/5 p-4 dark:border-dark-3">
           <p className="text-xs font-medium uppercase text-primary">Ingresos − egresos (día, referencia)</p>
           <p className="mt-1 text-2xl font-semibold text-dark dark:text-white">

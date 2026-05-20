@@ -25,6 +25,39 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
+if [[ "${GIRONA_SKIP_DB_START:-0}" != "1" ]]; then
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "Error: docker no está disponible en PATH. Define GIRONA_SKIP_DB_START=1 si usarás otro Postgres." >&2
+    exit 1
+  fi
+
+  if ! docker compose version >/dev/null 2>&1; then
+    echo "Error: docker compose no está disponible. Define GIRONA_SKIP_DB_START=1 si usarás otro Postgres." >&2
+    exit 1
+  fi
+
+  echo "Iniciando Postgres (Docker Compose db) ..."
+  docker compose up -d db
+
+  echo "Esperando Postgres (healthcheck) ..."
+  db_health=""
+  for _ in {1..60}; do
+    db_health="$({ docker compose ps --format json db 2>/dev/null || true; } | sed -n 's/.*"Health":"\([^"]*\)".*/\1/p' | head -n 1)"
+    if [[ "$db_health" == "healthy" ]]; then
+      break
+    fi
+    sleep 1
+  done
+
+  if [[ "$db_health" != "healthy" ]]; then
+    echo "Error: Postgres no quedó healthy a tiempo." >&2
+    docker compose ps db >&2 || true
+    exit 1
+  fi
+else
+  echo "Omitiendo arranque de Postgres por GIRONA_SKIP_DB_START=1."
+fi
+
 kill_tree() {
   local pid="$1"
   [[ -n "${pid:-}" ]] || return 0

@@ -15,6 +15,41 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE=(docker compose -f "$ROOT_DIR/docker-compose.yml")
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE=(docker-compose -f "$ROOT_DIR/docker-compose.yml")
+else
+  cat >&2 <<'EOF'
+Error: Docker está instalado, pero Docker Compose no está disponible.
+
+En Fedora normalmente se instala con:
+  sudo dnf install docker-compose-plugin
+
+Después verifica:
+  docker compose version
+EOF
+  exit 1
+fi
+
+if ! docker info >/dev/null 2>&1; then
+  cat >&2 <<'EOF'
+Error: Docker Compose existe, pero este usuario no puede conectarse a Docker.
+
+Opción rápida:
+  sudo bash deploy/portable/restore-db.sh girona-back/girona_dev.backup
+
+O configura permisos para usar Docker sin sudo:
+  sudo groupadd -f docker
+  sudo usermod -aG docker "$USER"
+  newgrp docker
+
+Después verifica:
+  docker info
+EOF
+  exit 1
+fi
+
 if [[ -f "$ENV_FILE" ]]; then
   set -a
   # shellcheck disable=SC1090
@@ -24,8 +59,6 @@ fi
 
 POSTGRES_DB="${POSTGRES_DB:-girona_prod}"
 POSTGRES_USER="${POSTGRES_USER:-girona_user}"
-
-COMPOSE=(docker compose -f "$ROOT_DIR/docker-compose.yml")
 
 "${COMPOSE[@]}" up -d db
 
