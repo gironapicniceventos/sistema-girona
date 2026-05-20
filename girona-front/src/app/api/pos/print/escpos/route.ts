@@ -1,33 +1,14 @@
 import type { PosPrefacturaOrder } from "@/lib/pos/prefactura";
 import { buildEscPosReceiptBytes } from "@/lib/escpos/build-receipt";
+import {
+  isAllowedPrinterHost,
+  normalizeThermalPrinterHost,
+} from "@/lib/escpos/printer-host";
 import { Socket } from "net";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function isPrivateOrLocalHost(host: string): boolean {
-  const h = host.trim().toLowerCase();
-  if (h === "localhost") return true;
-  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
-  if (!m) return false;
-  const a = Number(m[1]);
-  const b = Number(m[2]);
-  const c = Number(m[3]);
-  const d = Number(m[4]);
-  if ([a, b, c, d].some((x) => x > 255 || x < 0)) return false;
-  if (a === 10) return true;
-  if (a === 127) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  return false;
-}
-
-function allowPrinterHost(host: string): boolean {
-  const env = (process.env.THERMAL_PRINTER_HOST || "").trim();
-  if (env && host.trim() === env) return true;
-  return isPrivateOrLocalHost(host);
-}
 
 type Body = {
   order?: PosPrefacturaOrder;
@@ -51,14 +32,20 @@ export async function POST(request: Request) {
     );
   }
 
-  const host = body.host.trim();
-  const port = Number(body.port) > 0 ? Number(body.port) : 9100;
+  const parsed = normalizeThermalPrinterHost(body.host);
+  const host = parsed.host;
+  const port =
+    Number(body.port) > 0
+      ? Number(body.port)
+      : parsed.port && parsed.port > 0
+        ? parsed.port
+        : 9100;
 
-  if (!allowPrinterHost(host)) {
+  if (!host || !isAllowedPrinterHost(host, process.env.THERMAL_PRINTER_HOST)) {
     return NextResponse.json(
       {
         message:
-          "Host de impresora no permitido. Use IP de red privada (10.x, 192.168.x, 172.16-31.x, 127.x), localhost, o configure THERMAL_PRINTER_HOST.",
+          "Host de impresora no válido. Use solo la IP (ej. 192.168.1.50 o 127.0.0.1), sin :631 ni rutas CUPS. Puerto ESC/POS aparte: 9100.",
       },
       { status: 403 },
     );

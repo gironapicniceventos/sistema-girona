@@ -18,6 +18,10 @@ import {
   HiOutlinePrinter,
 } from "react-icons/hi";
 import { buildEscPosReceiptBytes } from "@/lib/escpos/build-receipt";
+import {
+  isPrivateOrLocalPrinterHost,
+  normalizeThermalPrinterHost,
+} from "@/lib/escpos/printer-host";
 import { PrefacturaClientePanel } from "@/lib/pos/prefactura-client-panel";
 import {
   buildPrefacturaPdf,
@@ -1210,19 +1214,69 @@ export default function PosScreen() {
     return t.endsWith("/print") ? t : `${t}/print`;
   }
 
-  async function handleEscPosNetworkPrint(order: PosOrderOut, tipAmount?: number) {
-    let host =
-      typeof window !== "undefined" ? window.localStorage.getItem(POS_THERMAL_HOST_KEY) : null;
-    if (!host?.trim()) {
-      const entered = window.prompt(
-        "Impresora térmica (ESC/POS por red, típico puerto 9100). IP o hostname, ej: 192.168.1.50",
-      );
-      if (!entered?.trim()) return;
-      host = entered.trim();
-      window.localStorage.setItem(POS_THERMAL_HOST_KEY, host);
+  function isPosOnLocalDevHost(): boolean {
+    if (typeof window === "undefined") return false;
+    const h = window.location.hostname;
+    return h === "localhost" || h === "127.0.0.1";
+  }
+
+  function resolveThermalPrinterTarget(): { host: string; port: number } | null {
+    const storedHost = window.localStorage.getItem(POS_THERMAL_HOST_KEY);
+    const storedPort = window.localStorage.getItem(POS_THERMAL_PORT_KEY);
+
+    const applyStored = (raw: string): { host: string; port: number } | null => {
+      const parsed = normalizeThermalPrinterHost(raw);
+      if (!parsed.host || !isPrivateOrLocalPrinterHost(parsed.host)) return null;
+      let port = Number(storedPort) > 0 ? Number(storedPort) : parsed.port && parsed.port > 0 ? parsed.port : 9100;
+      if (port === 631) port = 9100;
+      return { host: parsed.host, port };
+    };
+
+    if (storedHost?.trim()) {
+      const ok = applyStored(storedHost);
+      if (ok) return ok;
+      window.localStorage.removeItem(POS_THERMAL_HOST_KEY);
+      window.localStorage.removeItem(POS_THERMAL_PORT_KEY);
     }
-    const portStored = window.localStorage.getItem(POS_THERMAL_PORT_KEY);
-    const port = Number(portStored) > 0 ? Number(portStored) : 9100;
+
+    const entered = window.prompt(
+      "IP de la impresora térmica (ESC/POS, puerto 9100).\n" +
+        "Ejemplo: 192.168.1.50 o 127.0.0.1\n" +
+        "No use :631 (eso es CUPS, no el POS).",
+    );
+    if (!entered?.trim()) return null;
+    const parsed = normalizeThermalPrinterHost(entered);
+    if (!parsed.host || !isPrivateOrLocalPrinterHost(parsed.host)) {
+      window.alert(
+        "IP no válida. Escriba solo la dirección (10.x, 192.168.x, 172.16-31.x o 127.0.0.1), sin texto de CUPS.",
+      );
+      return null;
+    }
+    let port = parsed.port && parsed.port > 0 ? parsed.port : 9100;
+    if (port === 631) port = 9100;
+    window.localStorage.setItem(POS_THERMAL_HOST_KEY, parsed.host);
+    window.localStorage.setItem(POS_THERMAL_PORT_KEY, String(port));
+    return { host: parsed.host, port };
+  }
+
+  async function handleEscPosNetworkPrint(order: PosOrderOut, tipAmount?: number) {
+    const bridge = thermalBridgePrintUrl();
+    if (!bridge && !isPosOnLocalDevHost()) {
+      window.alert(
+        "Este POS está en Vercel: el servidor no puede llegar a su impresora USB/LAN.\n\n" +
+          "1) En la PC de la caja ejecute:\n" +
+          "   node girona-front/scripts/thermal-print-bridge.mjs\n\n" +
+          "2) En Vercel → Settings → Environment Variables:\n" +
+          "   NEXT_PUBLIC_THERMAL_BRIDGE_URL=http://127.0.0.1:3040\n\n" +
+          "3) Vuelva a desplegar o redeploy y recargue el navegador.\n\n" +
+          "Luego pulse ESC/POS e indique la IP de la térmica (puerto 9100, no 631).",
+      );
+      return;
+    }
+
+    const target = resolveThermalPrinterTarget();
+    if (!target) return;
+    const { host, port } = target;
 
     const status = posOrderRowStatusMeta(order);
     const createdAt = toColombiaTime(order.opened_at);
@@ -1236,15 +1290,13 @@ export default function PosScreen() {
       tipAmount,
     });
 
-    const bridge = thermalBridgePrintUrl();
-
     try {
       if (bridge) {
         const res = await fetch(bridge, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            host: host.trim(),
+            host,
             port,
             dataBase64: uint8ToBase64(bytes),
           }),
@@ -1267,7 +1319,7 @@ export default function PosScreen() {
           tableName,
           statusLabel: status.label,
           dateText,
-          host: host.trim(),
+          host,
           port,
           tipAmount,
         }),
@@ -1277,6 +1329,10 @@ export default function PosScreen() {
         detail?: string;
       } | null;
       if (!res.ok) {
+        if (res.status === 403) {
+          window.localStorage.removeItem(POS_THERMAL_HOST_KEY);
+          window.localStorage.removeItem(POS_THERMAL_PORT_KEY);
+        }
         window.alert(
           (typeof payload?.message === "string" && payload.message) ||
             (typeof payload?.detail === "string" && payload.detail) ||
